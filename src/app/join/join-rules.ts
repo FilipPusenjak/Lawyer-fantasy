@@ -13,12 +13,14 @@ export const inviteCodeSchema = text
   .transform(normalizeInviteCode)
   .pipe(z.string().min(4, "Enter the league's invite code.").max(12, "That invite code is too long."));
 
-export const teamNameSchema = text.transform((s) => s.trim().replace(/\s+/g, " ")).pipe(
-  z
-    .string()
-    .min(TEAM_NAME_MIN, `Team names need at least ${TEAM_NAME_MIN} characters.`)
-    .max(TEAM_NAME_MAX, `Team names can be at most ${TEAM_NAME_MAX} characters.`),
-);
+export const teamNameSchema = text
+  .transform((s) => s.trim().replace(/\s+/g, " "))
+  .pipe(
+    z
+      .string()
+      .min(TEAM_NAME_MIN, `Team names need at least ${TEAM_NAME_MIN} characters.`)
+      .max(TEAM_NAME_MAX, `Team names can be at most ${TEAM_NAME_MAX} characters.`),
+  );
 
 export const joinSchema = z.object({ code: inviteCodeSchema, teamName: teamNameSchema });
 

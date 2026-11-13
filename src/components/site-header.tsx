@@ -25,13 +25,23 @@ export function SiteHeader({ user }: { user: { displayName: string } | null }) {
             href="/account"
             className="inline-flex min-h-11 max-w-[50%] items-center gap-1.5 truncate rounded-xl px-2 text-sm font-semibold text-ink hover:bg-surface-2"
           >
-            <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+            <svg
+              viewBox="0 0 24 24"
+              className="h-5 w-5 shrink-0 text-muted"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.8}
+              aria-hidden
+            >
               <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-8 9a8 8 0 0 1 16 0" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span className="truncate">{user.displayName}</span>
           </Link>
         ) : (
-          <Link href="/login" className="inline-flex min-h-11 items-center rounded-xl px-2 text-sm font-semibold text-brand hover:bg-brand-soft">
+          <Link
+            href="/login"
+            className="inline-flex min-h-11 items-center rounded-xl px-2 text-sm font-semibold text-brand hover:bg-brand-soft"
+          >
             Log in
           </Link>
         )}

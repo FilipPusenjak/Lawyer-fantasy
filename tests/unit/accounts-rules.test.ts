@@ -100,10 +100,19 @@ describe("login", () => {
 
 describe("change password", () => {
   it("requires a different, confirmed new password", () => {
-    expect(changePasswordSchema.safeParse({ currentPassword: "old-pass-1", newPassword: "new-pass-1", confirmPassword: "new-pass-1" }).success).toBe(true);
-    expect(changePasswordSchema.safeParse({ currentPassword: "old-pass-1", newPassword: "new-pass-1", confirmPassword: "new-pass-2" }).success).toBe(false);
-    expect(changePasswordSchema.safeParse({ currentPassword: "same-pass-1", newPassword: "same-pass-1", confirmPassword: "same-pass-1" }).success).toBe(false);
-    expect(changePasswordSchema.safeParse({ currentPassword: "", newPassword: "new-pass-1", confirmPassword: "new-pass-1" }).success).toBe(false);
+    expect(
+      changePasswordSchema.safeParse({ currentPassword: "old-pass-1", newPassword: "new-pass-1", confirmPassword: "new-pass-1" }).success,
+    ).toBe(true);
+    expect(
+      changePasswordSchema.safeParse({ currentPassword: "old-pass-1", newPassword: "new-pass-1", confirmPassword: "new-pass-2" }).success,
+    ).toBe(false);
+    expect(
+      changePasswordSchema.safeParse({ currentPassword: "same-pass-1", newPassword: "same-pass-1", confirmPassword: "same-pass-1" })
+        .success,
+    ).toBe(false);
+    expect(changePasswordSchema.safeParse({ currentPassword: "", newPassword: "new-pass-1", confirmPassword: "new-pass-1" }).success).toBe(
+      false,
+    );
   });
 });
 

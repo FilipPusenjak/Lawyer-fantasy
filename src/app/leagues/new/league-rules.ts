@@ -40,19 +40,24 @@ export function isValidIsoDate(s: string): boolean {
 
 export const createLeagueSchema = z
   .object({
-    name: text.transform(clean).pipe(
-      z.string().min(2, "League names need at least 2 characters.").max(LEAGUE_NAME_MAX, `League names can be at most ${LEAGUE_NAME_MAX} characters.`),
-    ),
-    teamName: text.transform(clean).pipe(
-      z.string().min(2, "Team names need at least 2 characters.").max(40, "Team names can be at most 40 characters."),
-    ),
-    maxTeams: text.pipe(
-      z.coerce.number({ error: "Pick how many teams can join." }).int("Pick a whole number of teams.").min(2, "Leagues need at least 2 teams.").max(12, "Leagues can have at most 12 teams."),
-    ),
+    name: text
+      .transform(clean)
+      .pipe(
+        z
+          .string()
+          .min(2, "League names need at least 2 characters.")
+          .max(LEAGUE_NAME_MAX, `League names can be at most ${LEAGUE_NAME_MAX} characters.`),
+      ),
+    teamName: text
+      .transform(clean)
+      .pipe(z.string().min(2, "Team names need at least 2 characters.").max(40, "Team names can be at most 40 characters.")),
+    maxTeams: z.coerce
+      .number({ error: "Pick how many teams can join." })
+      .int("Pick a whole number of teams.")
+      .min(2, "Leagues need at least 2 teams.")
+      .max(12, "Leagues can have at most 12 teams."),
     seasonStart: text.transform((s) => s.trim()).pipe(z.string().refine(isValidIsoDate, "Pick a season start date.")),
-    pool: text.pipe(
-      z.union([z.literal("new"), z.uuid("Pick a player pool.")], { error: "Pick a player pool." }),
-    ),
+    pool: text.pipe(z.union([z.literal("new"), z.uuid("Pick a player pool.")], { error: "Pick a player pool." })),
     newPoolName: text.transform(clean),
   })
   .superRefine((d, ctx) => {

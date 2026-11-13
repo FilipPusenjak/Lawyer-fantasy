@@ -26,12 +26,9 @@ export const usernameSchema = text.transform(normalizeUsername).pipe(
     .regex(/^[a-z0-9_]+$/, "Usernames can only use letters, numbers and underscores (_)."),
 );
 
-export const displayNameSchema = text.transform((s) => s.trim().replace(/\s+/g, " ")).pipe(
-  z
-    .string()
-    .min(1, "Enter a display name.")
-    .max(DISPLAY_NAME_MAX, `Display names can be at most ${DISPLAY_NAME_MAX} characters.`),
-);
+export const displayNameSchema = text
+  .transform((s) => s.trim().replace(/\s+/g, " "))
+  .pipe(z.string().min(1, "Enter a display name.").max(DISPLAY_NAME_MAX, `Display names can be at most ${DISPLAY_NAME_MAX} characters.`));
 
 export const passwordSchema = text.pipe(
   z

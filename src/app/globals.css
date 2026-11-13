@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Use these via Tailwind utilities, e.g. bg-surface,
+ * text-muted, border-line, bg-brand, text-brand-ink, text-pos, text-neg.
+ */
+:root {
+  --bg: #f4f5f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f5;
+  --line: #dde1ea;
+  --ink: #111827;
+  --muted: #5b6475;
+  --brand: #1e3a6e; /* navy */
+  --brand-ink: #ffffff;
+  --brand-soft: #e3e9f6;
+  --accent: #b8892c; /* gold */
+  --accent-soft: #f7efdc;
+  --pos: #12804a;
+  --neg: #c0352b;
+  --warn: #9a6400;
+  --warn-soft: #fff4dd;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d111a;
+    --surface: #161c28;
+    --surface-2: #1f2737;
+    --line: #2b3446;
+    --ink: #e8ecf3;
+    --muted: #97a1b3;
+    --brand: #8fb1ee;
+    --brand-ink: #0d111a;
+    --brand-soft: #1d2a45;
+    --accent: #e0b65a;
+    --accent-soft: #3a2f17;
+    --pos: #4cc488;
+    --neg: #f07a70;
+    --warn: #f0c25a;
+    --warn-soft: #3a2f17;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-pos: var(--pos);
+  --color-neg: var(--neg);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+/* Bigger tap targets on touch devices */
+button,
+[role="button"],
+select,
+input,
+textarea {
+  font-size: 16px; /* prevents iOS zoom on focus */
+}

@@ -1,9 +1,21 @@
 "use client";
 
-import { useActionState, useEffect, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  startTransition,
+  useActionState,
+  useContext,
+  useEffect,
+  useRef,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { useFormStatus } from "react-dom";
 import { buttonClass, Notice } from "./ui";
 import type { ActionResult } from "@/server/action-result";
+
+/** Pending state of the nearest ActionForm (its submit is dispatched manually, so useFormStatus can miss it). */
+const ActionPendingContext = createContext(false);
 
 /** Submit button that shows a pending state. Must be inside a <form>. */
 export function SubmitButton({
@@ -24,7 +36,9 @@ export function SubmitButton({
   value?: string;
   disabled?: boolean;
 }) {
-  const { pending } = useFormStatus();
+  const { pending: formPending } = useFormStatus();
+  const actionPending = useContext(ActionPendingContext);
+  const pending = formPending || actionPending;
   return (
     <button
       type="submit"
@@ -52,7 +66,13 @@ type FormAction = (prev: ActionResult<unknown> | null, formData: FormData) => Pr
 
 /**
  * A <form> wired to a Server Action that returns ActionResult. Shows the
- * result message under the fields and optionally resets on success.
+ * result message under the fields.
+ *
+ * React resets uncontrolled fields after every form action — even one that
+ * returns an error — which would wipe what the user typed. So after hydration
+ * we dispatch the action ourselves (keeping the fields), and only reset when
+ * `resetOnSuccess` is set and the action succeeded. Before hydration the form
+ * still posts to the Server Action directly, so it works without JavaScript.
  */
 export function ActionForm({
   action,
@@ -65,15 +85,26 @@ export function ActionForm({
   className?: string;
   resetOnSuccess?: boolean;
 }) {
-  const [state, formAction] = useActionState(action, null);
+  const [state, formAction, isPending] = useActionState(action, null);
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (resetOnSuccess && state?.ok) ref.current?.reset();
   }, [state, resetOnSuccess]);
+
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
+    // Include the clicked button's name/value (e.g. "approve" vs "reject").
+    const formData = new FormData(e.currentTarget, submitter);
+    startTransition(() => formAction(formData));
+  }
+
   return (
-    <form ref={ref} action={formAction} className={className ?? "space-y-3"}>
-      {children}
-      <ActionMessage state={state} />
-    </form>
+    <ActionPendingContext value={isPending}>
+      <form ref={ref} action={formAction} onSubmit={onSubmit} className={className ?? "space-y-3"}>
+        {children}
+        <ActionMessage state={state} />
+      </form>
+    </ActionPendingContext>
   );
 }

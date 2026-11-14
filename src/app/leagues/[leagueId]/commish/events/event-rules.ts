@@ -136,14 +136,6 @@ export function eventLabel(type: string): string {
   return (EVENT_LABELS as Record<string, string>)[type] ?? type;
 }
 
-export type CreditSummary = { names: string[]; more: number };
-
-/** Up to `max` credit labels like "Avery Example +10", then "+N more". */
-export function summarizeCredits(credits: { name: string; points: number }[], max = 6, fmt: (n: number) => string = String): CreditSummary {
-  const names = credits.slice(0, max).map((c) => `${c.name} ${c.points > 0 ? "+" : ""}${fmt(c.points)}`);
-  return { names, more: Math.max(0, credits.length - max) };
-}
-
 /** Where an event falls for this league: "finalized" weeks need reopening; outside the season it scores nothing. */
 export function weekNote(week: number, totalWeeks: number, finalized: Set<number>): { tone: "warn" | "info"; text: string } | null {
   if (week < 1) return { tone: "info", text: "Before this league's season starts, so it won't score here." };

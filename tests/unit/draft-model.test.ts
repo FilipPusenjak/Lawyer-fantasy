@@ -4,11 +4,14 @@ import { defaultLeagueSettings } from "@/lib/settings";
 import {
   MIN_FRESH_CLOCK_SECONDS,
   MIN_RESUME_SECONDS,
+  afterDraftCopy,
   buildBoard,
+  connectionForStatus,
   filterAvailable,
   finalDraftOrder,
   formatClock,
   groupByPosition,
+  isTerminalConnection,
   isUnchanged,
   moveInList,
   nextAutoPickDeadline,
@@ -283,5 +286,30 @@ describe("shapeDraftState", () => {
     const done = shapeDraftState({ ...src, status: "complete", currentPick: 4 }, { myTeamId: null, isCommissioner: false, now: new Date(0), includePool: false });
     expect(done.onClock).toBeNull();
     expect(isUnchanged({ unchanged: true, version: 1, serverNow: "" })).toBe(true);
+  });
+});
+
+describe("draft room polling and after-draft copy", () => {
+  it("stops polling on 401 / 404 and retries other failures", () => {
+    expect(connectionForStatus(200)).toBe("ok");
+    expect(connectionForStatus(401)).toBe("signed_out");
+    expect(connectionForStatus(404)).toBe("removed");
+    expect(connectionForStatus(403)).toBe("removed");
+    expect(connectionForStatus(500)).toBe("retrying");
+    expect(connectionForStatus(503)).toBe("retrying");
+    expect(isTerminalConnection("signed_out")).toBe(true);
+    expect(isTerminalConnection("removed")).toBe(true);
+    expect(isTerminalConnection("retrying")).toBe(false);
+  });
+  it("varies the done card by where the season stands", () => {
+    expect(afterDraftCopy({ phase: "preseason", nextLock: "Mon, Sep 7, 9:00 AM" }).body).toBe(
+      "The season is set up. Check your roster and set your starting lineup before the first lineup lock (Mon, Sep 7, 9:00 AM).",
+    );
+    expect(afterDraftCopy({ phase: "in_season", nextLock: "Mon, Oct 5, 9:00 AM" }).body).toContain("under way");
+    expect(afterDraftCopy({ phase: "in_season", nextLock: null }).body).not.toContain("lock");
+    expect(afterDraftCopy({ phase: "playoffs", nextLock: null }).body).toContain("playoffs are on");
+    const done = afterDraftCopy({ phase: "complete", nextLock: null });
+    expect(done.title).toBe("Draft results");
+    expect(done.body).not.toContain("lineup");
   });
 });

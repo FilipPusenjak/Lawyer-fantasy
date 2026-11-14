@@ -41,7 +41,11 @@ function PositionBadge({ position }: { position: Position }) {
 }
 
 function RankLabel({ rank }: { rank: number | null }) {
-  return <span className="w-8 shrink-0 text-xs tabular-nums text-muted">{rank ? `#${rank}` : "–"}</span>;
+  return (
+    <span className="w-8 shrink-0 text-xs tabular-nums text-muted" title={rank ? `Draft rank #${rank}` : "Unranked"}>
+      {rank ? `#${rank}` : "–"}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +233,7 @@ export function QueuePanel({
                 <p className="truncate font-semibold leading-tight">{l.name}</p>
                 <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
                   <PositionBadge position={l.position} />
-                  <span className="truncate">{l.rank ? `Rank #${l.rank}` : "Unranked"}</span>
+                  <span className="truncate">{l.rank ? `Draft rank #${l.rank}` : "Unranked"}</span>
                 </p>
               </div>
               {canDraft ? (

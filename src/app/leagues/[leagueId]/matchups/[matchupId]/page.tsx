@@ -7,21 +7,25 @@ import { matchups, teams } from "@/db/schema";
 import { Badge, Card, CardTitle, cx, LinkButton, Page, PageHeader, Points } from "@/components/ui";
 import { isUuid } from "@/lib/format";
 import { SLOT_LABELS, starterSlots } from "@/lib/settings";
-import { currentWeek, formatDateTime, formatShortDate, isWeekLocked, todayIn, weekEndDate, weekLockTime, weekStartDate } from "@/lib/time";
+import {
+  currentWeek,
+  editableWeek,
+  formatDateTime,
+  formatShortDate,
+  isWeekLocked,
+  todayIn,
+  weekEndDate,
+  weekLockTime,
+  weekStartDate,
+} from "@/lib/time";
 import { getLeagueContext } from "@/server/league-context";
 import { leagueClock } from "@/server/services/lineups";
-import { periodLabel, WEEK_STATE_LABELS, weekState, type WeekState } from "@/server/services/results";
+import { periodTitle, playoffRoundTotal, weekState } from "@/server/services/results";
 import { getScoreboard, type Scoreboard } from "@/server/services/scores";
-import { leadingSide, matchupPhase, matchupScores, PhaseBadge, ScoreLine, weekRangeDates } from "../matchup-view";
+import { getLeagueMatchups } from "@/server/services/standings";
+import { leadingSide, matchupPhase, matchupScores, PhaseBadge, ScoreLine, weekRangeDates, WeekStateBadge } from "../matchup-view";
 
 export const metadata: Metadata = { title: "Matchup" };
-
-const WEEK_STATE_TONES: Record<WeekState, "neutral" | "brand" | "accent" | "warn"> = {
-  upcoming: "neutral",
-  in_progress: "brand",
-  ended: "warn",
-  finalized: "accent",
-};
 
 export default async function MatchupDetailPage({ params }: PageProps<"/leagues/[leagueId]/matchups/[matchupId]">) {
   const { leagueId, matchupId } = await params;
@@ -41,15 +45,21 @@ export default async function MatchupDetailPage({ params }: PageProps<"/leagues/
   const week = currentWeek(now, clock);
   const today = todayIn(tz, now);
 
-  const [teamRows, sb] = await Promise.all([
+  const [teamRows, sb, all] = await Promise.all([
     db.select({ id: teams.id, name: teams.name }).from(teams).where(eq(teams.leagueId, leagueId)),
     getScoreboard(leagueId),
+    // Only playoff titles need the bracket (for the round name).
+    m.isPlayoff ? getLeagueMatchups(db, leagueId) : Promise.resolve([]),
   ]);
   const names = new Map(teamRows.map((t) => [t.id, t.name]));
   const s = matchupScores(m, sb, teamRows.map((t) => t.id));
   const lead = leadingSide(m, s);
   const myId = ctx.team?.id ?? null;
   const phase = matchupPhase(m, week);
+  const title = periodTitle(m, playoffRoundTotal(settings.schedule, teamRows.length, all));
+  // "Set my lineup" only helps in my own matchup while one of its weeks can still change.
+  const inMatchup = myId !== null && (m.teamAId === myId || m.teamBId === myId);
+  const canSetLineup = inMatchup && !m.isBye && !m.final && league.status !== "complete" && editableWeek(now, clock) <= m.weekEnd;
 
   const sides: { teamId: string; name: string }[] = [{ teamId: m.teamAId, name: names.get(m.teamAId) ?? "Team" }];
   if (m.teamBId) sides.push({ teamId: m.teamBId, name: names.get(m.teamBId) ?? "Team" });
@@ -64,7 +74,7 @@ export default async function MatchupDetailPage({ params }: PageProps<"/leagues/
         ‹ All matchups
       </Link>
       <PageHeader
-        title={periodLabel(m)}
+        title={title}
         subtitle={weekRangeDates(m.weekStart, m.weekEnd, league.seasonStart)}
         action={<PhaseBadge phase={phase} />}
       />
@@ -120,14 +130,14 @@ export default async function MatchupDetailPage({ params }: PageProps<"/leagues/
                     {formatShortDate(weekStartDate(w, league.seasonStart))} – {formatShortDate(weekEndDate(w, league.seasonStart))}
                   </span>
                 </h2>
-                <Badge tone={WEEK_STATE_TONES[state]}>{WEEK_STATE_LABELS[state]}</Badge>
+                <WeekStateBadge state={state} />
               </div>
               {!locked ? (
                 <p className="text-xs text-muted">
                   Lineups can change until they lock {formatDateTime(weekLockTime(w, league.seasonStart, settings.schedule.lockTime, tz), tz)}.
                 </p>
               ) : null}
-              <div className={cx("grid gap-3", sides.length > 1 && "md:grid-cols-2")}>
+              <div className={cx("grid grid-cols-1 gap-3", sides.length > 1 && "md:grid-cols-2")}>
                 {sides.map((side) => (
                   <WeekLineup
                     key={side.teamId}
@@ -147,7 +157,7 @@ export default async function MatchupDetailPage({ params }: PageProps<"/leagues/
       )}
 
       <p className="text-center text-xs text-muted">0 = no approved court activity that week.</p>
-      {!m.isBye ? (
+      {canSetLineup ? (
         <div className="flex justify-center">
           <LinkButton href={`${base}/team`} variant="ghost">
             Set my lineup ›
@@ -185,8 +195,10 @@ function WeekLineup({
 }) {
   const starters = sb.starters(teamId, week);
   return (
-    <Card className={cx("p-3", isMine && "border-brand")}>
-      <CardTitle action={isMine ? <Badge tone="brand">You</Badge> : undefined}>{teamName}</CardTitle>
+    <Card className={cx("min-w-0 p-3", isMine && "border-brand")}>
+      <CardTitle action={isMine ? <Badge tone="brand">You</Badge> : undefined}>
+        <span className="wrap-anywhere">{teamName}</span>
+      </CardTitle>
       <ul>
         {starters.map((lawyerId, i) => {
           const lawyer = lawyerId ? sb.lawyers.get(lawyerId) : undefined;

@@ -6,11 +6,11 @@ import type { Matchup } from "@/db/schema";
 import { Badge, Card, CardTitle, cx, EmptyState, Page, PageHeader, Points } from "@/components/ui";
 import { fmtRecord } from "@/lib/format";
 import { playoffRoundWeeks } from "@/lib/schedule";
-import { playoffRounds, type LeagueSettings } from "@/lib/settings";
+import type { LeagueSettings } from "@/lib/settings";
 import { currentWeek } from "@/lib/time";
 import { getLeagueContext } from "@/server/league-context";
 import { leagueClock } from "@/server/services/lineups";
-import { bracketRoundCount, playoffRoundName, playoffRoundRef, weekRangeLabel } from "@/server/services/results";
+import { playoffRoundName, playoffRoundRef, playoffRoundTotal, weekRangeLabel } from "@/server/services/results";
 import { getScoreboard } from "@/server/services/scores";
 import { getLeagueMatchups, getStandings, type StandingWithTeam } from "@/server/services/standings";
 import { leadingSide, matchupPhase, matchupScores, PhaseBadge, ScoreLine, weekRangeDates } from "../matchups/matchup-view";
@@ -37,6 +37,12 @@ export default async function StandingsPage({ params }: PageProps<"/leagues/[lea
   const cut = settings.schedule.playoffTeams >= 2 ? Math.min(settings.schedule.playoffTeams, standings.length) : 0;
   const hasMedianGames = all.some((m) => !m.isPlayoff && m.isMedian);
   const champion = findChampion(league.status, playoff, standings);
+  // Real bracket size: playoff spots capped at the number of teams.
+  const totalRounds = playoffRoundTotal(settings.schedule, standings.length, all);
+  const playoffWeeks = weekRangeLabel(
+    playoffRoundWeeks(1, settings.schedule).weekStart,
+    playoffRoundWeeks(totalRounds, settings.schedule).weekEnd,
+  );
 
   return (
     <Page className="space-y-4">
@@ -53,7 +59,16 @@ export default async function StandingsPage({ params }: PageProps<"/leagues/[lea
       ) : null}
 
       {playoff.length > 0 ? (
-        <Bracket base={base} leagueId={leagueId} playoff={playoff} standings={standings} myId={myId} seasonStart={league.seasonStart} settings={settings} />
+        <Bracket
+          base={base}
+          leagueId={leagueId}
+          playoff={playoff}
+          standings={standings}
+          myId={myId}
+          seasonStart={league.seasonStart}
+          settings={settings}
+          totalRounds={totalRounds}
+        />
       ) : null}
 
       <Card>
@@ -112,7 +127,7 @@ export default async function StandingsPage({ params }: PageProps<"/leagues/[lea
         <div className="mt-3 space-y-1 text-xs text-muted">
           {cut > 0 ? (
             <p>
-              Top {cut} make the playoffs ({weekRangeLabel(playoffRoundWeeks(1, settings.schedule).weekStart, playoffRoundWeeks(playoffRounds(cut), settings.schedule).weekEnd)}).
+              Top {cut} make the playoffs ({playoffWeeks}).
             </p>
           ) : (
             <p>No playoffs this season: the best record wins.</p>
@@ -143,6 +158,7 @@ async function Bracket({
   myId,
   seasonStart,
   settings,
+  totalRounds,
 }: {
   base: string;
   leagueId: string;
@@ -151,6 +167,7 @@ async function Bracket({
   myId: string | null;
   seasonStart: string;
   settings: LeagueSettings;
+  totalRounds: number;
 }) {
   const week = currentWeek(new Date(), leagueClock({ seasonStart, settings }));
   const names = new Map(standings.map((s) => [s.teamId, s.team.name]));
@@ -164,7 +181,6 @@ async function Bracket({
     byRound.set(r, [...(byRound.get(r) ?? []), m]);
   }
   for (const ms of byRound.values()) ms.sort((a, b) => (a.bracketSlot ?? 0) - (b.bracketSlot ?? 0));
-  const totalRounds = Math.max(bracketRoundCount(byRound.get(1)?.length ?? 0), ...byRound.keys());
 
   const rounds: number[] = [];
   for (let r = 1; r <= totalRounds; r++) rounds.push(r);

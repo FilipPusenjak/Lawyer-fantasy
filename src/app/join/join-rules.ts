@@ -24,6 +24,26 @@ export const teamNameSchema = text
 
 export const joinSchema = z.object({ code: inviteCodeSchema, teamName: teamNameSchema });
 
+type LeagueStatus = "setup" | "drafting" | "in_season" | "playoffs" | "complete";
+
+/**
+ * Why a league can't take new teams right now (null when it can). Mirrors the
+ * checks in `joinLeague`: only pre-draft leagues with an open spot accept teams.
+ */
+export function joinClosedReason(league: { status: LeagueStatus; teamCount: number; maxTeams: number }): string | null {
+  switch (league.status) {
+    case "drafting":
+      return "The draft is in progress, so this league can't take new teams.";
+    case "in_season":
+    case "playoffs":
+      return "This league has already drafted, so it can't take new teams.";
+    case "complete":
+      return "This league's season is over, so it can't take new teams.";
+    case "setup":
+      return league.teamCount >= league.maxTeams ? "This league is full, so it can't take new teams." : null;
+  }
+}
+
 /** Relative join link for an invite code. */
 export function joinPath(code: string): string {
   return `/join?code=${encodeURIComponent(normalizeInviteCode(code))}`;

@@ -6,32 +6,28 @@ import { teams, type Matchup } from "@/db/schema";
 import { Badge, Card, CardTitle, EmptyState, LinkButton, Notice, Page, PageHeader } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { plural } from "@/lib/format";
-import { playoffRounds, regularSeasonWeeks, totalSeasonWeeks, type LeagueSettings } from "@/lib/settings";
+import { regularSeasonWeeks, totalSeasonWeeks, type LeagueSettings } from "@/lib/settings";
 import { addDays, formatShortDate } from "@/lib/time";
 import { getCommissionerContext } from "@/server/league-context";
 import {
-  bracketRoundCount,
   getWeekStatuses,
   pendingEventCountsByWeek,
+  periodRef,
+  periodTitle,
+  playoffRoundList,
   playoffRoundName,
   playoffRoundRef,
-  WEEK_STATE_LABELS,
+  playoffRoundTotal,
+  seasonLength,
   weekRangeLabel,
-  type WeekState,
   type WeekStatusRow,
 } from "@/server/services/results";
 import { getLeagueMatchups } from "@/server/services/standings";
 import { LEAGUE_STATUS_LABELS, leagueStatusTone } from "@/app/leagues/new/league-rules";
+import { WeekStateBadge } from "../../matchups/matchup-view";
 import { finalizeWeekAction, reopenWeekAction } from "./actions";
 
 export const metadata: Metadata = { title: "Weeks" };
-
-const STATE_TONES: Record<WeekState, "neutral" | "brand" | "accent" | "warn"> = {
-  upcoming: "neutral",
-  in_progress: "brand",
-  ended: "warn",
-  finalized: "accent",
-};
 
 function dates(r: Pick<WeekStatusRow, "startDate" | "endDate">): string {
   return `${formatShortDate(r.startDate)} – ${formatShortDate(r.endDate)}`;
@@ -71,16 +67,14 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
   const names = new Map(teamRows.map((t) => [t.id, t.name]));
   const playoff = all.filter((m) => m.isPlayoff);
   // With fewer teams than playoff spots the bracket has fewer rounds than the settings allow for.
-  const seeded = Math.min(settings.schedule.playoffTeams, teamRows.length);
-  const lastWeek = regularSeasonWeeks(settings.schedule) + playoffRounds(seeded) * settings.schedule.playoffRoundWeeks;
-  const rows = allRows.filter((r) => r.week <= lastWeek);
+  const totalRounds = playoffRoundTotal(settings.schedule, teamRows.length, all);
+  const rows = allRows.filter((r) => r.week <= seasonLength(settings.schedule, totalRounds));
 
   const finalizable = rows.find((r) => r.canFinalize) ?? null;
   const nextOpen = rows.find((r) => r.state !== "finalized") ?? null;
   const latestFinal = rows.find((r) => r.canReopen) ?? null;
   const finalCount = rows.filter((r) => r.state === "finalized").length;
   const generatedAfterLatest = latestFinal ? playoff.filter((m) => m.weekStart > latestFinal.week) : [];
-  const totalRounds = bracketRoundCount(playoff.filter((m) => m.playoffRound === 1).length);
   const pendingTotal = [...pending.values()].reduce((a, b) => a + b, 0);
 
   return (
@@ -128,12 +122,13 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
             <>
               <p className="text-sm">
                 Week {latestFinal.week} is the latest final week. Reopen it if a late approval or a fix should count. Its scores
-                go back to live until you finalize it again.
+                can change until you finalize it again.
               </p>
               {generatedAfterLatest.length > 0 ? (
                 <Notice tone="warn">
-                  This also removes the {roundList(generatedAfterLatest, totalRounds)} matchups made when week {latestFinal.week} was
-                  finalized. They&apos;re rebuilt, with fresh seeding, when you finalize it again.
+                  This also removes the {playoffRoundList(generatedAfterLatest.map((m) => m.playoffRound ?? 1), totalRounds)}{" "}
+                  matchups made when week {latestFinal.week} was finalized. They&apos;re rebuilt, with fresh seeding, when you
+                  finalize it again.
                 </Notice>
               ) : null}
               <input type="hidden" name="leagueId" value={leagueId} />
@@ -142,7 +137,7 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
                 variant="secondary"
                 className="w-full"
                 pendingText="Reopening…"
-                confirm={`Reopen week ${latestFinal.week}? Its matchups go back to live scores until you finalize it again.`}
+                confirm={`Reopen week ${latestFinal.week}? Its scores can change until you finalize it again.`}
               >
                 Reopen week {latestFinal.week}
               </SubmitButton>
@@ -170,22 +165,20 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
         <ul>
           {rows.map((r) => {
             const p = pending.get(r.week) ?? 0;
+            const context = weekContext(r, totalRounds);
             return (
               <li key={r.week} className="flex min-h-12 items-center gap-3 border-b border-line py-2 last:border-b-0">
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold">
-                    Week {r.week} <span className="text-xs font-normal text-muted">· {r.periodLabel}</span>
+                    Week {r.week}
+                    {context ? <span className="text-xs font-normal text-muted"> · {context}</span> : null}
                   </p>
                   <p className="text-xs text-muted">
                     {dates(r)}
                     {p > 0 ? <span className="text-warn"> · {p} pending</span> : null}
                   </p>
                 </div>
-                {r.canFinalize ? (
-                  <Badge tone="warn">Ready to finalize</Badge>
-                ) : (
-                  <Badge tone={STATE_TONES[r.state]}>{WEEK_STATE_LABELS[r.state]}</Badge>
-                )}
+                {r.canFinalize ? <Badge tone="warn">Ready to finalize</Badge> : <WeekStateBadge state={r.state} />}
               </li>
             );
           })}
@@ -202,18 +195,27 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
   );
 }
 
+/**
+ * Which matchup a week belongs to, for the week list: the playoff round name,
+ * or the multi-week matchup ("Weeks 1–2 matchup"). Nothing for one-week matchups.
+ */
+function weekContext(r: WeekStatusRow, totalRounds: number): string | null {
+  if (r.period.isPlayoff) return periodTitle(r.period, totalRounds);
+  return r.period.weekStart === r.period.weekEnd ? null : `${periodTitle(r.period, totalRounds)} matchup`;
+}
+
 /** What finalizing this week will settle, in one sentence. */
 function settlesText(r: WeekStatusRow, settings: LeagueSettings, playoff: Matchup[], totalRounds: number): string {
   if (r.week !== r.period.weekEnd) {
-    return `Finalizing locks its scores. The ${r.periodLabel} matchups are settled after week ${r.period.weekEnd}.`;
+    return `Finalizing locks its scores. Matchups for ${periodRef(r.period, totalRounds)} are settled after week ${r.period.weekEnd}.`;
   }
   if (!r.period.isPlayoff) {
     if (r.week === regularSeasonWeeks(settings.schedule)) {
-      return settings.schedule.playoffTeams >= 2
+      return totalRounds > 0
         ? "This settles the last regular-season matchups and sets the playoff bracket."
         : "This settles the last matchups and ends the season.";
     }
-    return `This settles the ${r.periodLabel} matchups.`;
+    return `This settles the matchups for ${periodRef(r.period, totalRounds)}.`;
   }
   const round = r.period.playoffRound ?? 1;
   const exists = playoff.some((m) => m.playoffRound === round);
@@ -228,11 +230,6 @@ function waitingText(status: string, next: WeekStatusRow | null): string {
   if (!next) return "Every week is final.";
   if (next.state === "ended") return `Week ${next.week} has ended. Finalize the weeks before it first.`;
   return `Week ${next.week} ends ${formatShortDate(next.endDate)}. You can finalize it starting ${formatShortDate(addDays(next.endDate, 1))}.`;
-}
-
-function roundList(ms: Matchup[], totalRounds: number): string {
-  const rounds = [...new Set(ms.map((m) => m.playoffRound ?? 1))].sort((a, b) => a - b);
-  return rounds.map((r) => playoffRoundName(r, totalRounds).toLowerCase()).join(" and ");
 }
 
 function SeasonCard({
@@ -263,7 +260,7 @@ function SeasonCard({
   if (seeded < 2) {
     playoffText = "No playoffs this season. The best regular-season record wins.";
   } else if (playoff.length === 0) {
-    playoffText = `Top ${seeded} teams, ${weekRangeLabel(regularWeeks + 1, regularWeeks + playoffRounds(seeded) * s.playoffRoundWeeks).toLowerCase()}. The bracket is set automatically when week ${regularWeeks} is finalized.`;
+    playoffText = `Top ${seeded} teams, ${weekRangeLabel(regularWeeks + 1, seasonLength(s, totalRounds)).toLowerCase()}. The bracket is set automatically when week ${regularWeeks} is finalized.`;
   } else {
     const latest = Math.max(...playoff.map((m) => m.playoffRound ?? 1));
     const round = playoff.filter((m) => (m.playoffRound ?? 1) === latest);

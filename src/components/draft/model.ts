@@ -250,6 +250,57 @@ export function remainingMs(deadlineIso: string | null, clientNowMs: number, ske
   return Math.max(0, Date.parse(deadlineIso) - (clientNowMs + skewMs));
 }
 
+/** Polling health. "signed_out" and "removed" are terminal: polling stops. */
+export type PollConnection = "ok" | "retrying" | "signed_out" | "removed";
+
+/**
+ * How a poll response's HTTP status affects the connection. 401 (signed out)
+ * and 403/404 (not a member any more, or the league is gone) won't fix
+ * themselves, so they stop polling; anything else non-2xx is retried.
+ */
+export function connectionForStatus(status: number): PollConnection {
+  if (status === 401) return "signed_out";
+  if (status === 403 || status === 404) return "removed";
+  return status >= 200 && status < 300 ? "ok" : "retrying";
+}
+
+export function isTerminalConnection(c: PollConnection): boolean {
+  return c === "signed_out" || c === "removed";
+}
+
+/** Where the season stands once the draft is done (computed by the page). */
+export type AfterDraftInfo = {
+  phase: "preseason" | "in_season" | "playoffs" | "complete";
+  /** Next lineup lock, formatted in the league time zone (null when there is none). */
+  nextLock: string | null;
+};
+
+/** Heading and text for the "draft is done" card, by where the season stands. */
+export function afterDraftCopy(info: AfterDraftInfo): { title: string; body: string } {
+  const lock = info.nextLock ? ` (${info.nextLock})` : "";
+  switch (info.phase) {
+    case "preseason":
+      return {
+        title: "The draft is done!",
+        body: `The season is set up. Check your roster and set your starting lineup before the first lineup lock${lock}.`,
+      };
+    case "in_season":
+      return {
+        title: "The draft is done",
+        body: info.nextLock
+          ? `The season is under way. Check your roster and set your lineup before the next lineup lock${lock}.`
+          : "The season is under way. Check your roster and follow your matchups.",
+      };
+    case "playoffs":
+      return {
+        title: "Draft results",
+        body: "The regular season is over and the playoffs are on. Follow the bracket on the standings page.",
+      };
+    case "complete":
+      return { title: "Draft results", body: "The season is over. Here's how the draft went." };
+  }
+}
+
 /** "1:05", "0:09". Rounds up so the clock shows 0:00 only when time is up. */
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));

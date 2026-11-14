@@ -12,6 +12,9 @@
  *   seeded into a bracket (top seeds get byes when the field isn't a power of
  *   two). Each time a playoff round is settled, the next round is created, until
  *   one team is left and the season is complete.
+ * - Completing the season closes out open business in the same transaction:
+ *   proposed/accepted trades fail and pending waiver claims lose, so nothing
+ *   runs later even if a week is reopened.
  *
  * Reopening (documented choice): only the most recently finalized week can be
  * reopened. Its snapshots are deleted and the matchups containing it go back to
@@ -35,6 +38,8 @@ import {
   scoringEvents,
   teams,
   teamWeekScores,
+  trades,
+  waiverClaims,
   weekFinalizations,
   type League,
   type Matchup,
@@ -44,6 +49,7 @@ import { decideWinner, firstRoundBracket, median, nextRoundPairs, playoffRoundWe
 import { round2 } from "@/lib/scoring";
 import {
   parseLeagueSettings,
+  playoffRounds,
   regularSeasonWeeks,
   totalSeasonWeeks,
   type ScheduleSettings,
@@ -61,11 +67,22 @@ export type LeagueStatus = League["status"];
 
 export type WeekState = "upcoming" | "in_progress" | "ended" | "finalized";
 
-export const WEEK_STATE_LABELS: Record<WeekState, string> = {
+/**
+ * The one phase vocabulary for weeks and matchups on every page:
+ * Upcoming → Live → Awaiting final (over, not finalized yet) → Final.
+ */
+export const PHASE_LABELS = {
   upcoming: "Upcoming",
-  in_progress: "In progress",
-  ended: "Ended · not final",
-  finalized: "Final",
+  live: "Live",
+  awaiting: "Awaiting final",
+  final: "Final",
+} as const;
+
+export const WEEK_STATE_LABELS: Record<WeekState, string> = {
+  upcoming: PHASE_LABELS.upcoming,
+  in_progress: PHASE_LABELS.live,
+  ended: PHASE_LABELS.awaiting,
+  finalized: PHASE_LABELS.final,
 };
 
 /** State of a week given today's date in the league time zone ("YYYY-MM-DD"). */
@@ -74,6 +91,22 @@ export function weekState(week: number, seasonStart: string, today: string, fina
   if (weekEndDate(week, seasonStart) < today) return "ended";
   if (weekStartDate(week, seasonStart) <= today) return "in_progress";
   return "upcoming";
+}
+
+export type MatchupPhase = "bye" | keyof typeof PHASE_LABELS;
+
+export const MATCHUP_PHASE_LABELS: Record<MatchupPhase, string> = { bye: "Bye", ...PHASE_LABELS };
+
+/**
+ * Where a matchup stands in the given current week (league time). Matches
+ * `weekState`: a matchup whose weeks are all over but not finalized yet is
+ * "awaiting" (its scores can still change), never "live".
+ */
+export function matchupPhase(m: Pick<Matchup, "isBye" | "final" | "weekStart" | "weekEnd">, currentWeek: number): MatchupPhase {
+  if (m.isBye) return "bye";
+  if (m.final) return "final";
+  if (currentWeek < m.weekStart) return "upcoming";
+  return currentWeek > m.weekEnd ? "awaiting" : "live";
 }
 
 export type PeriodInfo = {
@@ -104,12 +137,6 @@ export function periodOfWeek(week: number, schedule: ScheduleSettings): PeriodIn
   return { period: r.period, weekStart: r.weekStart, weekEnd: r.weekEnd, isPlayoff: true, playoffRound: round };
 }
 
-/** Short period label: "Week 3", "Week 3–4" or "Playoffs R1". */
-export function periodLabel(p: Pick<PeriodInfo, "weekStart" | "weekEnd" | "isPlayoff" | "playoffRound">): string {
-  if (p.isPlayoff) return `Playoffs R${p.playoffRound ?? 1}`;
-  return p.weekStart === p.weekEnd ? `Week ${p.weekStart}` : `Week ${p.weekStart}–${p.weekEnd}`;
-}
-
 /** "Week 5" or "Weeks 5–6". */
 export function weekRangeLabel(weekStart: number, weekEnd: number): string {
   return weekStart === weekEnd ? `Week ${weekStart}` : `Weeks ${weekStart}–${weekEnd}`;
@@ -120,7 +147,28 @@ export function bracketRoundCount(firstRoundMatches: number): number {
   return firstRoundMatches <= 0 ? 0 : Math.round(Math.log2(firstRoundMatches * 2));
 }
 
-/** Friendly playoff round name ("Championship", "Semifinals", …). */
+/**
+ * Rounds in this league's real bracket. Once round 1 exists it is counted from
+ * its matchups; before that, from the playoff spots capped at the number of
+ * teams (a 2-team league has a one-round bracket: the championship).
+ */
+export function playoffRoundTotal(
+  schedule: Pick<ScheduleSettings, "playoffTeams">,
+  teamCount: number,
+  all: Pick<Matchup, "isPlayoff" | "playoffRound">[] = [],
+): number {
+  const playoff = all.filter((m) => m.isPlayoff);
+  const firstRound = playoff.filter((m) => (m.playoffRound ?? 1) === 1).length;
+  const planned = firstRound > 0 ? bracketRoundCount(firstRound) : playoffRounds(Math.min(schedule.playoffTeams, teamCount));
+  return Math.max(planned, ...playoff.map((m) => m.playoffRound ?? 1));
+}
+
+/** Weeks the season really runs: the regular season plus the real bracket's rounds. */
+export function seasonLength(schedule: ScheduleSettings, totalRounds: number): number {
+  return regularSeasonWeeks(schedule) + totalRounds * schedule.playoffRoundWeeks;
+}
+
+/** Friendly playoff round name ("Championship", "Semifinals", "Quarterfinals", "Round 1"). */
 export function playoffRoundName(round: number, totalRounds: number): string {
   if (round === totalRounds) return "Championship";
   if (round === totalRounds - 1) return "Semifinals";
@@ -134,10 +182,35 @@ export function playoffRoundRef(round: number, totalRounds: number): string {
   return name.startsWith("Round") ? name.toLowerCase() : `the ${name.toLowerCase()}`;
 }
 
+/** Several rounds mid-sentence: "semifinals and championship". */
+export function playoffRoundList(rounds: number[], totalRounds: number): string {
+  return [...new Set(rounds)]
+    .sort((a, b) => a - b)
+    .map((r) => playoffRoundName(r, totalRounds).toLowerCase())
+    .join(" and ");
+}
+
+type PeriodLabelInput = Pick<PeriodInfo, "weekStart" | "weekEnd" | "isPlayoff" | "playoffRound">;
+
+/**
+ * The title of a matchup period, the same on every page: "Week 3" / "Weeks 7–8"
+ * in the regular season, the round name ("Semifinals") in the playoffs.
+ * `totalRounds` comes from `playoffRoundTotal`.
+ */
+export function periodTitle(p: PeriodLabelInput, totalRounds: number): string {
+  return p.isPlayoff ? playoffRoundName(p.playoffRound ?? 1, totalRounds) : weekRangeLabel(p.weekStart, p.weekEnd);
+}
+
+/** `periodTitle` for use mid-sentence: "weeks 7–8", "the semifinals", "round 1". */
+export function periodRef(p: PeriodLabelInput, totalRounds: number): string {
+  return p.isPlayoff ? playoffRoundRef(p.playoffRound ?? 1, totalRounds) : weekRangeLabel(p.weekStart, p.weekEnd).toLowerCase();
+}
+
 /** Distinct matchup periods that exist for a league, in order. */
-export function listPeriods(all: Pick<Matchup, "period" | "weekStart" | "weekEnd" | "isPlayoff" | "playoffRound">[]): (PeriodInfo & {
-  label: string;
-})[] {
+export function listPeriods(
+  all: Pick<Matchup, "period" | "weekStart" | "weekEnd" | "isPlayoff" | "playoffRound">[],
+  totalRounds: number,
+): (PeriodInfo & { label: string })[] {
   const byPeriod = new Map<number, PeriodInfo & { label: string }>();
   for (const m of all) {
     if (byPeriod.has(m.period)) continue;
@@ -148,7 +221,7 @@ export function listPeriods(all: Pick<Matchup, "period" | "weekStart" | "weekEnd
       isPlayoff: m.isPlayoff,
       playoffRound: m.playoffRound,
     };
-    byPeriod.set(m.period, { ...p, label: periodLabel(p) });
+    byPeriod.set(m.period, { ...p, label: periodTitle(p, totalRounds) });
   }
   return [...byPeriod.values()].sort((a, b) => a.period - b.period);
 }
@@ -215,7 +288,6 @@ export type WeekStatusRow = {
   endDate: string;
   state: WeekState;
   period: PeriodInfo;
-  periodLabel: string;
   canFinalize: boolean;
   canReopen: boolean;
 };
@@ -241,7 +313,6 @@ export function weekStatusList(args: {
       endDate: weekEndDate(week, seasonStart),
       state: weekState(week, seasonStart, today, finalized),
       period,
-      periodLabel: periodLabel(period),
       canFinalize: canFinalizeWeek({ week, status, schedule, seasonStart, today, finalizedWeeks: finalized }).ok,
       canReopen: week === latestFinal,
     });
@@ -471,8 +542,25 @@ async function settleReadyMatchups(tx: DbOrTx, leagueId: string, finalized: Read
 
 type AdvanceOutcome = { playoffsStarted: boolean; roundCreated: number | null; seasonComplete: boolean; status: LeagueStatus };
 
+export const SEASON_ENDED_TRADE_REASON = "The season ended before this trade went through.";
+
+/**
+ * Close out open business when the season ends, so nothing is processed later
+ * (even if a week is reopened): open trades fail and pending waiver claims lose.
+ */
+export async function closeOutSeason(tx: DbOrTx, leagueId: string, now: Date): Promise<void> {
+  await tx
+    .update(trades)
+    .set({ status: "failed", failReason: SEASON_ENDED_TRADE_REASON, resolvedAt: now })
+    .where(and(eq(trades.leagueId, leagueId), inArray(trades.status, ["proposed", "accepted"])));
+  await tx
+    .update(waiverClaims)
+    .set({ status: "lost", processedAt: now })
+    .where(and(eq(waiverClaims.leagueId, leagueId), eq(waiverClaims.status, "pending")));
+}
+
 /** Start the playoffs, create the next round or complete the season, as needed. */
-async function advanceSeason(tx: DbOrTx, league: League, schedule: ScheduleSettings): Promise<AdvanceOutcome> {
+async function advanceSeason(tx: DbOrTx, league: League, schedule: ScheduleSettings, now: Date): Promise<AdvanceOutcome> {
   const leagueId = league.id;
   const [all, [{ n: teamCount }]] = await Promise.all([
     tx.select().from(matchups).where(eq(matchups.leagueId, leagueId)),
@@ -485,6 +573,7 @@ async function advanceSeason(tx: DbOrTx, league: League, schedule: ScheduleSetti
       return { playoffsStarted: false, roundCreated: null, seasonComplete: false, status: league.status };
     case "complete":
       await setStatus("complete");
+      await closeOutSeason(tx, leagueId, now);
       return { playoffsStarted: false, roundCreated: null, seasonComplete: true, status: "complete" };
     case "seed_playoffs": {
       const standings = await getStandings(tx, leagueId);
@@ -537,7 +626,7 @@ export async function finalizeWeek(
     finalized.add(week);
 
     const settled = await settleReadyMatchups(tx, leagueId, finalized);
-    const outcome = await advanceSeason(tx, league, settings.schedule);
+    const outcome = await advanceSeason(tx, league, settings.schedule, now);
     return { week, settled, ...outcome };
   });
 }

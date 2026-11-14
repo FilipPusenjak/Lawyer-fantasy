@@ -11,7 +11,7 @@ import { normalizeInviteCode } from "@/server/services/league";
 import { authHref } from "@/app/account/rules";
 import { StickyForm } from "@/app/account/sticky-form";
 import { joinLeagueAction } from "./actions";
-import { joinPath, TEAM_NAME_MAX } from "./join-rules";
+import { joinClosedReason, joinPath, TEAM_NAME_MAX } from "./join-rules";
 
 export const metadata: Metadata = { title: "Join a league" };
 
@@ -47,6 +47,7 @@ export default async function JoinPage({ searchParams }: PageProps<"/join">) {
   const user = await getCurrentUser();
   const league = code ? await findLeague(code, user?.id ?? null) : null;
   const next = code ? joinPath(code) : "/join";
+  const closedReason = league ? joinClosedReason(league) : null;
 
   return (
     <>
@@ -83,17 +84,21 @@ export default async function JoinPage({ searchParams }: PageProps<"/join">) {
               Go to {league.name}
             </LinkButton>
           </Card>
+        ) : closedReason ? (
+          <Card className="space-y-3">
+            <Notice tone="warn">{closedReason}</Notice>
+            <p className="text-sm text-muted">Ask your commissioner if there&apos;s another league you can join.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <LinkButton href="/join" variant="secondary">
+                Use another code
+              </LinkButton>
+              <LinkButton href="/" variant="secondary">
+                My leagues
+              </LinkButton>
+            </div>
+          </Card>
         ) : (
           <Card>
-            {league && league.status !== "setup" ? (
-              <div className="mb-3">
-                <Notice tone="warn">This league has already drafted, so it can&apos;t take new teams.</Notice>
-              </div>
-            ) : league && league.teamCount >= league.maxTeams ? (
-              <div className="mb-3">
-                <Notice tone="warn">This league is full.</Notice>
-              </div>
-            ) : null}
             <StickyForm action={joinLeagueAction}>
               <Field label="Invite code">
                 <Input

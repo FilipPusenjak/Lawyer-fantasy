@@ -6,7 +6,6 @@ import { drafts, scoringEvents, teams, trades, users, type Matchup, type Team } 
 import { Badge, Card, CardTitle, cx, EmptyState, LinkButton, ListRow, Page, Points } from "@/components/ui";
 import { fmtRecord, plural } from "@/lib/format";
 import { median } from "@/lib/schedule";
-import { playoffRounds, totalSeasonWeeks, type LeagueSettings } from "@/lib/settings";
 import {
   currentWeek,
   editableWeek,
@@ -19,9 +18,11 @@ import {
 } from "@/lib/time";
 import { getLeagueContext, type LeagueContext } from "@/server/league-context";
 import { leagueClock } from "@/server/services/lineups";
+import { matchupPhase, MATCHUP_PHASE_LABELS, periodTitle, playoffRoundTotal, seasonLength } from "@/server/services/results";
 import { getScoreboard } from "@/server/services/scores";
 import { getLeagueMatchups, getStandings, teamMatchupInPeriod, type StandingWithTeam } from "@/server/services/standings";
 import { LEAGUE_STATUS_LABELS, pickHomePeriod } from "@/app/leagues/new/league-rules";
+import { PHASE_TONES } from "./matchups/matchup-view";
 import { ActivityList, loadActivity, type ActivityItem } from "./activity/activity-list";
 import { inviteUrl } from "./more/invite-url";
 import { ShareInvite } from "./more/share-invite";
@@ -34,15 +35,21 @@ export default async function LeagueHomePage({ params }: PageProps<"/leagues/[le
   const status = ctx.league.status;
   const now = new Date();
 
-  const [alerts, activity] = await Promise.all([loadAlerts(ctx), loadActivity(leagueId, 8)]);
+  const inSeason = status === "in_season" || status === "playoffs" || status === "complete";
+
+  const [alerts, activity, season] = await Promise.all([
+    loadAlerts(ctx),
+    loadActivity(leagueId, 8),
+    inSeason ? loadSeason(ctx) : Promise.resolve(null),
+  ]);
 
   return (
     <Page className="space-y-4">
-      <StatusLine ctx={ctx} now={now} />
+      <StatusLine ctx={ctx} now={now} season={season} />
       <Alerts alerts={alerts} />
       {status === "setup" ? <SetupView ctx={ctx} /> : null}
       {status === "drafting" ? <DraftingView ctx={ctx} /> : null}
-      {status === "in_season" || status === "playoffs" || status === "complete" ? <SeasonView ctx={ctx} now={now} /> : null}
+      {season ? <SeasonView ctx={ctx} now={now} season={season} /> : null}
       {status !== "setup" || activity.length > 0 ? <RecentActivity ctx={ctx} items={activity} /> : null}
     </Page>
   );
@@ -52,14 +59,31 @@ export default async function LeagueHomePage({ params }: PageProps<"/leagues/[le
 // Header line + alerts
 // ---------------------------------------------------------------------------
 
-function StatusLine({ ctx, now }: { ctx: LeagueContext; now: Date }) {
+/** Everything the in-season views need, loaded once. */
+type SeasonData = {
+  allMatchups: Matchup[];
+  standings: StandingWithTeam[];
+  /** Rounds in the real bracket (playoff spots capped at the number of teams). */
+  totalRounds: number;
+  /** Weeks the season really runs (regular season + real bracket). */
+  totalWeeks: number;
+};
+
+async function loadSeason(ctx: LeagueContext): Promise<SeasonData> {
+  const [allMatchups, standings] = await Promise.all([getLeagueMatchups(db, ctx.league.id), getStandings(db, ctx.league.id)]);
+  const totalRounds = playoffRoundTotal(ctx.settings.schedule, standings.length, allMatchups);
+  return { allMatchups, standings, totalRounds, totalWeeks: seasonLength(ctx.settings.schedule, totalRounds) };
+}
+
+function StatusLine({ ctx, now, season }: { ctx: LeagueContext; now: Date; season: SeasonData | null }) {
   const { league, settings } = ctx;
   const week = currentWeek(now, leagueClock({ seasonStart: league.seasonStart, settings }));
-  const total = totalSeasonWeeks(settings.schedule);
   let detail: string;
-  if (league.status === "setup" || league.status === "drafting" || week < 1) detail = `Season starts ${formatDate(league.seasonStart)}`;
-  else if (league.status === "complete" || week > total) detail = "Season complete";
-  else detail = `Week ${week} of ${total}`;
+  if (!season || week < 1) detail = `Season starts ${formatDate(league.seasonStart)}`;
+  else if (league.status === "complete") detail = "Season complete";
+  // Every week is over, but the last results aren't finalized yet.
+  else if (week > season.totalWeeks) detail = "Waiting for final results";
+  else detail = `Week ${week} of ${season.totalWeeks}`;
   return (
     <div className="flex items-center gap-2 text-sm">
       <Badge tone={league.status === "drafting" ? "warn" : "brand"}>{LEAGUE_STATUS_LABELS[league.status]}</Badge>
@@ -247,13 +271,13 @@ async function DraftingView({ ctx }: { ctx: LeagueContext }) {
 // Season, playoffs, complete
 // ---------------------------------------------------------------------------
 
-async function SeasonView({ ctx, now }: { ctx: LeagueContext; now: Date }) {
+function SeasonView({ ctx, now, season }: { ctx: LeagueContext; now: Date; season: SeasonData }) {
   const { league, settings } = ctx;
   const base = `/leagues/${league.id}`;
   const tz = settings.schedule.timezone;
   const clock = leagueClock({ seasonStart: league.seasonStart, settings });
 
-  const [allMatchups, standings] = await Promise.all([getLeagueMatchups(db, league.id), getStandings(db, league.id)]);
+  const { allMatchups, standings, totalRounds, totalWeeks } = season;
   const teamsById = new Map(standings.map((s) => [s.teamId, s.team]));
 
   const week = currentWeek(now, clock);
@@ -261,7 +285,7 @@ async function SeasonView({ ctx, now }: { ctx: LeagueContext; now: Date }) {
   const mine = period !== null && ctx.team ? teamMatchupInPeriod(allMatchups, ctx.team.id, period) : null;
 
   const lockWeek = editableWeek(now, clock);
-  const showLock = league.status !== "complete" && ctx.team !== null && lockWeek <= totalSeasonWeeks(settings.schedule);
+  const showLock = league.status !== "complete" && ctx.team !== null && lockWeek <= totalWeeks;
   const champion = league.status === "complete" ? findChampion(allMatchups, standings) : null;
 
   return (
@@ -275,7 +299,7 @@ async function SeasonView({ ctx, now }: { ctx: LeagueContext; now: Date }) {
       ) : null}
 
       {mine && ctx.team ? (
-        <MatchupCard m={mine} myTeam={ctx.team} teamsById={teamsById} ctx={ctx} week={week} />
+        <MatchupCard m={mine} myTeam={ctx.team} teamsById={teamsById} ctx={ctx} week={week} totalRounds={totalRounds} />
       ) : (
         <Card>
           <CardTitle>Your matchup</CardTitle>
@@ -308,29 +332,22 @@ async function SeasonView({ ctx, now }: { ctx: LeagueContext; now: Date }) {
   );
 }
 
-function roundLabel(m: Matchup, settings: LeagueSettings): string {
-  if (!m.isPlayoff) return `Matchup ${m.period}`;
-  const rounds = playoffRounds(settings.schedule.playoffTeams);
-  const r = m.playoffRound ?? 1;
-  if (r === rounds) return "Championship";
-  if (r === rounds - 1) return "Playoff semifinals";
-  return `Playoffs · Round ${r}`;
-}
-
 async function MatchupCard({
   m,
   myTeam,
   teamsById,
   ctx,
   week,
+  totalRounds,
 }: {
   m: Matchup;
   myTeam: Team;
   teamsById: Map<string, Team>;
   ctx: LeagueContext;
   week: number;
+  totalRounds: number;
 }) {
-  const { league, settings } = ctx;
+  const { league } = ctx;
   const base = `/leagues/${league.id}`;
   const iAmA = m.teamAId === myTeam.id;
   const oppId = iAmA ? m.teamBId : m.teamAId;
@@ -349,15 +366,17 @@ async function MatchupCard({
     else oppScore = sb.teamRange(oppId, m.weekStart, m.weekEnd);
   }
 
-  const weeks = m.weekStart === m.weekEnd ? `Week ${m.weekStart}` : `Weeks ${m.weekStart}–${m.weekEnd}`;
   const dates = `${formatShortDate(weekStartDate(m.weekStart, league.seasonStart))} – ${formatShortDate(weekEndDate(m.weekEnd, league.seasonStart))}`;
 
-  let stateText: string;
-  let stateTone: "neutral" | "pos" | "neg" | "brand" = "neutral";
-  if (m.isBye) {
-    stateText = "Bye: you advance automatically";
+  // Same phase vocabulary as the matchups pages: Upcoming / Live / Awaiting final / Final.
+  const phase = matchupPhase(m, week);
+  let stateText: string = MATCHUP_PHASE_LABELS[phase];
+  let stateTone: "neutral" | "pos" | "neg" | "brand" | "accent" | "warn" = PHASE_TONES[phase];
+  let hint: string | null = null;
+  if (phase === "bye") {
+    stateText = "Bye · you advance automatically";
     stateTone = "pos";
-  } else if (m.final) {
+  } else if (phase === "final") {
     // Median games store a null winner for both ties and losses, so compare scores.
     if (m.winnerTeamId === myTeam.id) {
       stateText = "Final · You won!";
@@ -368,13 +387,10 @@ async function MatchupCard({
       stateText = "Final · You lost";
       stateTone = "neg";
     }
-  } else if (week < m.weekStart) {
-    stateText = `Starts ${formatShortDate(weekStartDate(m.weekStart, league.seasonStart))}`;
-  } else if (week > m.weekEnd) {
-    stateText = "Waiting for the commissioner to finalize";
-  } else {
-    stateText = "Live · updates as events are approved";
-    stateTone = "brand";
+  } else if (phase === "live") {
+    hint = "Scores update as court events are approved.";
+  } else if (phase === "awaiting") {
+    hint = "These weeks are over. Scores can still change until the commissioner finalizes them.";
   }
 
   const oppName = m.isBye ? "Bye" : m.isMedian || !oppId ? "League median" : (opponent?.name ?? "Opponent");
@@ -385,7 +401,7 @@ async function MatchupCard({
     <Link href={`${base}/matchups/${m.id}`} className="block active:scale-[0.99]">
       <Card>
         <CardTitle action={<span className="text-sm font-semibold text-brand">Details ›</span>}>
-          {roundLabel(m, settings)} · {weeks}
+          {periodTitle(m, totalRounds)}
         </CardTitle>
         <div className="space-y-2">
           <ScoreRow name={myTeam.name} sub="You" score={myScore} leading={myLeads} />
@@ -399,9 +415,12 @@ async function MatchupCard({
           )}
         </div>
         <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-          <Badge tone={stateTone}>{stateText}</Badge>
-          <span className="text-muted">{dates}</span>
+          <Badge tone={stateTone} className="min-w-0">
+            <span className="truncate">{stateText}</span>
+          </Badge>
+          <span className="shrink-0 whitespace-nowrap text-muted">{dates}</span>
         </div>
+        {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
       </Card>
     </Link>
   );

@@ -11,13 +11,20 @@ import {
   firstRoundRows,
   isRangeFinalized,
   listPeriods,
+  matchupPhase,
+  MATCHUP_PHASE_LABELS,
   nextRoundRows,
-  periodLabel,
   periodOfWeek,
+  periodRef,
+  periodTitle,
   planSeasonAdvance,
+  playoffRoundList,
   playoffRoundName,
+  playoffRoundTotal,
   rangeTotals,
+  seasonLength,
   settleMatchup,
+  WEEK_STATE_LABELS,
   weekState,
   weekStatusList,
 } from "@/server/services/results";
@@ -58,10 +65,15 @@ describe("periods", () => {
     expect(periodOfWeek(9, s)).toBeNull();
     expect(periodOfWeek(0, s)).toBeNull();
   });
-  it("labels periods", () => {
-    expect(periodLabel({ weekStart: 3, weekEnd: 4, isPlayoff: false, playoffRound: null })).toBe("Week 3–4");
-    expect(periodLabel({ weekStart: 3, weekEnd: 3, isPlayoff: false, playoffRound: null })).toBe("Week 3");
-    expect(periodLabel({ weekStart: 21, weekEnd: 22, isPlayoff: true, playoffRound: 1 })).toBe("Playoffs R1");
+  it("titles periods the same way everywhere", () => {
+    expect(periodTitle({ weekStart: 3, weekEnd: 4, isPlayoff: false, playoffRound: null }, 2)).toBe("Weeks 3–4");
+    expect(periodTitle({ weekStart: 3, weekEnd: 3, isPlayoff: false, playoffRound: null }, 2)).toBe("Week 3");
+    expect(periodTitle({ weekStart: 21, weekEnd: 22, isPlayoff: true, playoffRound: 1 }, 2)).toBe("Semifinals");
+    expect(periodTitle({ weekStart: 23, weekEnd: 24, isPlayoff: true, playoffRound: 2 }, 2)).toBe("Championship");
+    expect(periodRef({ weekStart: 7, weekEnd: 8, isPlayoff: false, playoffRound: null }, 2)).toBe("weeks 7–8");
+    expect(periodRef({ weekStart: 21, weekEnd: 22, isPlayoff: true, playoffRound: 1 }, 2)).toBe("the semifinals");
+    expect(periodRef({ weekStart: 21, weekEnd: 22, isPlayoff: true, playoffRound: 1 }, 4)).toBe("round 1");
+    expect(playoffRoundList([3, 2, 3], 3)).toBe("semifinals and championship");
   });
   it("lists distinct periods in order and picks the current one", () => {
     const ms = [
@@ -69,7 +81,7 @@ describe("periods", () => {
       { period: 1, weekStart: 1, weekEnd: 2, isPlayoff: false, playoffRound: null },
       { period: 1, weekStart: 1, weekEnd: 2, isPlayoff: false, playoffRound: null },
     ];
-    expect(listPeriods(ms).map((p) => p.label)).toEqual(["Week 1–2", "Week 3–4"]);
+    expect(listPeriods(ms, 0).map((p) => p.label)).toEqual(["Weeks 1–2", "Weeks 3–4"]);
     expect(currentPeriod(ms, 3)).toBe(2);
     expect(currentPeriod(ms, -1)).toBe(1); // preseason
     expect(currentPeriod(ms, 9)).toBe(2); // after the season: latest period
@@ -83,6 +95,37 @@ describe("periods", () => {
     expect(playoffRoundName(2, 3)).toBe("Semifinals");
     expect(playoffRoundName(1, 3)).toBe("Quarterfinals");
     expect(playoffRoundName(1, 4)).toBe("Round 1");
+  });
+  it("sizes the bracket from the real number of teams", () => {
+    const eight = schedule({ playoffTeams: 8 });
+    // 2 teams: a one-round bracket, so round 1 is the championship.
+    expect(playoffRoundTotal(eight, 2)).toBe(1);
+    expect(playoffRoundName(1, playoffRoundTotal(eight, 2))).toBe("Championship");
+    expect(playoffRoundTotal(eight, 6)).toBe(3);
+    expect(playoffRoundTotal(eight, 12)).toBe(3);
+    expect(playoffRoundTotal(schedule({ playoffTeams: 0 }), 6)).toBe(0);
+    // Once seeded, the first round decides (byes included).
+    const round1 = [1, 1].map((r) => ({ isPlayoff: true, playoffRound: r }));
+    expect(playoffRoundTotal(eight, 12, [...round1, { isPlayoff: false, playoffRound: null }])).toBe(2);
+    const s4 = schedule({ matchupWeeks: 2, regularSeasonMatchups: 5, playoffRoundWeeks: 1 });
+    expect(seasonLength(s4, 2)).toBe(12);
+    expect(seasonLength(s4, 0)).toBe(10);
+  });
+});
+
+describe("phase vocabulary", () => {
+  const m = { isBye: false, final: false, weekStart: 3, weekEnd: 4 };
+  it("goes Upcoming, Live, Awaiting final, Final", () => {
+    expect(matchupPhase(m, 2)).toBe("upcoming");
+    expect(matchupPhase(m, 3)).toBe("live");
+    expect(matchupPhase(m, 4)).toBe("live");
+    expect(matchupPhase(m, 5)).toBe("awaiting");
+    expect(matchupPhase({ ...m, final: true }, 5)).toBe("final");
+    expect(matchupPhase({ ...m, isBye: true }, 3)).toBe("bye");
+  });
+  it("uses the same words for weeks and matchups", () => {
+    expect(MATCHUP_PHASE_LABELS.awaiting).toBe("Awaiting final");
+    expect(WEEK_STATE_LABELS).toEqual({ upcoming: "Upcoming", in_progress: "Live", ended: "Awaiting final", finalized: "Final" });
   });
 });
 
@@ -117,7 +160,7 @@ describe("canFinalizeWeek / canReopenWeek", () => {
     expect(rows.map((r) => r.state)).toEqual(["finalized", "ended", "in_progress"]);
     expect(rows.map((r) => r.canFinalize)).toEqual([false, true, false]);
     expect(rows.map((r) => r.canReopen)).toEqual([true, false, false]);
-    expect(rows[2].periodLabel).toBe("Playoffs R1");
+    expect(rows[2].period).toMatchObject({ isPlayoff: true, playoffRound: 1 });
     expect(rows[0].startDate).toBe("2026-09-07");
     expect(rows[0].endDate).toBe("2026-09-13");
   });

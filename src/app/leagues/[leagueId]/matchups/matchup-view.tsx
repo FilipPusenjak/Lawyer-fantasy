@@ -8,27 +8,40 @@ import { Badge, cx, Points } from "@/components/ui";
 import { median } from "@/lib/schedule";
 import { round2 } from "@/lib/scoring";
 import { formatShortDate, weekEndDate, weekStartDate } from "@/lib/time";
+import { MATCHUP_PHASE_LABELS, WEEK_STATE_LABELS, type MatchupPhase, type WeekState } from "@/server/services/results";
 import type { Scoreboard } from "@/server/services/scores";
 
-export type MatchupPhase = "bye" | "final" | "live" | "upcoming";
+export { matchupPhase, type MatchupPhase } from "@/server/services/results";
 
-/** Where a matchup stands for the given current week. */
-export function matchupPhase(m: Pick<Matchup, "isBye" | "final" | "weekStart">, currentWeek: number): MatchupPhase {
-  if (m.isBye) return "bye";
-  if (m.final) return "final";
-  return currentWeek < m.weekStart ? "upcoming" : "live";
-}
+type PhaseTone = "neutral" | "brand" | "accent" | "warn";
 
-const PHASES: Record<MatchupPhase, { label: string; tone: "neutral" | "brand" | "accent" }> = {
-  bye: { label: "Bye", tone: "neutral" },
-  final: { label: "Final", tone: "accent" },
-  live: { label: "Live", tone: "brand" },
-  upcoming: { label: "Upcoming", tone: "neutral" },
+/** Badge tones for the shared phase vocabulary (Upcoming / Live / Awaiting final / Final). */
+export const PHASE_TONES: Record<MatchupPhase, PhaseTone> = {
+  bye: "neutral",
+  upcoming: "neutral",
+  live: "brand",
+  awaiting: "warn",
+  final: "accent",
 };
 
-export function PhaseBadge({ phase }: { phase: MatchupPhase }) {
-  const p = PHASES[phase];
-  return <Badge tone={p.tone}>{p.label}</Badge>;
+const WEEK_STATE_PHASE: Record<WeekState, MatchupPhase> = {
+  upcoming: "upcoming",
+  in_progress: "live",
+  ended: "awaiting",
+  finalized: "final",
+};
+
+export function PhaseBadge({ phase, className }: { phase: MatchupPhase; className?: string }) {
+  return (
+    <Badge tone={PHASE_TONES[phase]} className={className}>
+      {MATCHUP_PHASE_LABELS[phase]}
+    </Badge>
+  );
+}
+
+/** A week's state with the same labels and colors as matchup phases. */
+export function WeekStateBadge({ state }: { state: WeekState }) {
+  return <Badge tone={PHASE_TONES[WEEK_STATE_PHASE[state]]}>{WEEK_STATE_LABELS[state]}</Badge>;
 }
 
 export type MatchupScores = {

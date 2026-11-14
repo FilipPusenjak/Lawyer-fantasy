@@ -7,7 +7,7 @@ import { buttonClass, Card, cx, EmptyState, LinkButton, Notice, Page, PageHeader
 import { currentWeek } from "@/lib/time";
 import { getLeagueContext } from "@/server/league-context";
 import { leagueClock } from "@/server/services/lineups";
-import { currentPeriod, listPeriods } from "@/server/services/results";
+import { currentPeriod, listPeriods, playoffRoundTotal } from "@/server/services/results";
 import { getScoreboard } from "@/server/services/scores";
 import { getLeagueMatchups } from "@/server/services/standings";
 import { leadingSide, matchupPhase, matchupScores, PhaseBadge, ScoreLine, weekRangeDates } from "./matchup-view";
@@ -36,7 +36,7 @@ export default async function MatchupsPage({ params, searchParams }: PageProps<"
   }
 
   const week = currentWeek(new Date(), leagueClock({ seasonStart: ctx.league.seasonStart, settings: ctx.settings }));
-  const periods = listPeriods(all);
+  const periods = listPeriods(all, playoffRoundTotal(ctx.settings.schedule, teamRows.length, all));
   const requested = Number(Array.isArray(sp.period) ? sp.period[0] : sp.period);
   const selected =
     periods.find((p) => p.period === requested) ??
@@ -55,7 +55,7 @@ export default async function MatchupsPage({ params, searchParams }: PageProps<"
   const inPeriod = all
     .filter((m) => m.period === selected.period)
     .sort((a, b) => Number(isMine(b)) - Number(isMine(a)) || (a.bracketSlot ?? 0) - (b.bracketSlot ?? 0));
-  const waitingOnFinal = inPeriod.some((m) => !m.final && week > m.weekEnd);
+  const waitingOnFinal = inPeriod.some((m) => matchupPhase(m, week) === "awaiting");
 
   return (
     <Page className="space-y-4">
@@ -91,7 +91,7 @@ export default async function MatchupsPage({ params, searchParams }: PageProps<"
           {ctx.isCommissioner ? (
             <>
               {" "}
-              <Link href={`${base}/commish/weeks`} className="font-semibold text-brand underline">
+              <Link href={`${base}/commish/weeks`} className="inline-flex min-h-11 items-center font-semibold text-brand underline">
                 Finalize weeks
               </Link>
             </>

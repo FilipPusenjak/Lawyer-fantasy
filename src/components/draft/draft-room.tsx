@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { ActionMessage } from "@/components/ui-client";
 import { Badge, Button, Card, CardTitle, LinkButton, Notice, cx } from "@/components/ui";
@@ -31,14 +32,19 @@ import {
 import {
   DRAFT_POLL_MS,
   SETUP_POLL_MS,
+  afterDraftCopy,
+  connectionForStatus,
   formatClock,
+  isTerminalConnection,
   isUnchanged,
   picksUntilMyTurn,
   remainingMs,
+  type AfterDraftInfo,
   type DraftLawyer,
   type DraftPollJson,
   type DraftStateJson,
   type DraftTeamInfo,
+  type PollConnection,
 } from "./model";
 
 import type { ProjectionSummary } from "@/lib/projections";
@@ -54,6 +60,8 @@ type Props = {
   roster: RosterSettings;
   /** Scheduled draft time, already formatted in the league time zone. */
   scheduledLabel: string | null;
+  /** Where the season stands, for the card shown once the draft is done. */
+  afterDraft: AfterDraftInfo;
   /** Scouting projections by lawyer id (projected points for the upcoming week). */
   projections?: Record<string, ProjectionSummary>;
 };
@@ -66,7 +74,7 @@ function useDraftState(leagueId: string, initial: DraftStateJson) {
   const [state, setState] = useState<DraftStateJson>(initial);
   const [pool, setPool] = useState<DraftLawyer[]>(initial.pool ?? []);
   const [skewMs, setSkewMs] = useState(0);
-  const [connection, setConnection] = useState<"ok" | "retrying" | "signed_out">("ok");
+  const [connection, setConnection] = useState<PollConnection>("ok");
 
   // A Server Action's revalidatePath re-renders the page with fresh props:
   // adopt them when they're at least as new as what we have.
@@ -95,12 +103,9 @@ function useDraftState(leagueId: string, initial: DraftStateJson) {
         setConnection("retrying");
         return null;
       }
-      if (res.status === 401) {
-        setConnection("signed_out");
-        return null;
-      }
       if (!res.ok) {
-        setConnection("retrying");
+        // 401 / 404 are terminal (signed out, or no longer in this league): polling stops.
+        setConnection(connectionForStatus(res.status));
         return null;
       }
       let data: DraftPollJson;
@@ -132,7 +137,7 @@ function useDraftState(leagueId: string, initial: DraftStateJson) {
 
   // Poll while the draft is upcoming or live; pause when the tab is hidden.
   const { status } = state;
-  const stopped = status === "complete" || connection === "signed_out";
+  const stopped = status === "complete" || isTerminalConnection(connection);
   useEffect(() => {
     if (stopped) return;
     const interval = status === "not_started" ? SETUP_POLL_MS : DRAFT_POLL_MS;
@@ -300,17 +305,44 @@ function Toast({ message, onClose }: { message: ActionResult<unknown> | null; on
   );
 }
 
-function ConnectionNotice({ connection }: { connection: "ok" | "retrying" | "signed_out" }) {
-  if (connection === "signed_out") return <Notice tone="error">You&apos;re signed out. Sign in again to keep drafting.</Notice>;
+function ConnectionNotice({ connection, leagueId }: { connection: PollConnection; leagueId: string }) {
+  if (connection === "signed_out") {
+    return (
+      <Notice tone="error">
+        You&apos;re signed out, so the draft stopped updating.{" "}
+        <Link
+          href={`/login?next=${encodeURIComponent(`/leagues/${leagueId}/draft`)}`}
+          className="inline-flex min-h-11 items-center font-semibold underline"
+        >
+          Log in again
+        </Link>
+      </Notice>
+    );
+  }
   if (connection === "retrying") return <Notice tone="warn">Connection hiccup. Retrying…</Notice>;
   return null;
+}
+
+/** Shown instead of the room once the server says this league isn't available to the viewer any more. */
+function RemovedNotice() {
+  return (
+    <Card className="space-y-3">
+      <p className="text-lg font-bold">This draft isn&apos;t available to you</p>
+      <p className="text-sm text-muted">
+        You&apos;re no longer a member of this league, or it was deleted. Ask the commissioner if you think that&apos;s a mistake.
+      </p>
+      <LinkButton href="/" className="w-full">
+        Back to my leagues
+      </LinkButton>
+    </Card>
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Draft room
 // ---------------------------------------------------------------------------
 
-export function DraftRoom({ leagueId, initial, roster, scheduledLabel, projections = EMPTY_PROJECTIONS }: Props) {
+export function DraftRoom({ leagueId, initial, roster, scheduledLabel, afterDraft, projections = EMPTY_PROJECTIONS }: Props) {
   const { state, pool, skewMs, connection, refetch } = useDraftState(leagueId, initial);
   const [message, setMessage] = useState<ActionResult<unknown> | null>(null);
   const [pending, startTransition] = useTransition();
@@ -411,6 +443,9 @@ export function DraftRoom({ leagueId, initial, roster, scheduledLabel, projectio
   );
   const queueLabel = state.myQueue.length > 0 ? `Queue (${state.myQueue.length})` : "Queue";
 
+  // ----- No access any more (removed from the league) ---------------------
+  if (connection === "removed") return <RemovedNotice />;
+
   // ----- Before the draft -------------------------------------------------
   if (state.status === "not_started") {
     const tabs: { key: Tab; label: ReactNode }[] = [{ key: "lawyers", label: "Lawyers" }];
@@ -418,7 +453,7 @@ export function DraftRoom({ leagueId, initial, roster, scheduledLabel, projectio
     const activeTab = tabs.some((t) => t.key === tab) ? tab : "lawyers";
     return (
       <div className="space-y-4">
-        <ConnectionNotice connection={connection} />
+        <ConnectionNotice connection={connection} leagueId={leagueId} />
         <PreDraft
           state={state}
           scheduledLabel={scheduledLabel}
@@ -446,15 +481,22 @@ export function DraftRoom({ leagueId, initial, roster, scheduledLabel, projectio
       { key: "team", label: "Teams" },
     ];
     const activeTab = tabs.some((t) => t.key === tab) ? tab : "board";
+    const copy = afterDraftCopy(afterDraft);
+    const seasonOver = afterDraft.phase === "playoffs" || afterDraft.phase === "complete";
     return (
       <div className="space-y-4">
+        <ConnectionNotice connection={connection} leagueId={leagueId} />
         <Card>
-          <p className="text-lg font-bold">The draft is done!</p>
-          <p className="mt-1 text-sm text-muted">
-            The season is set up. Check your roster and set your starting lineup before the first lineup lock.
-          </p>
+          <p className="text-lg font-bold">{copy.title}</p>
+          <p className="mt-1 text-sm text-muted">{copy.body}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <LinkButton href={`/leagues/${leagueId}/team`}>My Team</LinkButton>
+            {seasonOver ? (
+              <LinkButton href={`/leagues/${leagueId}/standings`}>
+                {afterDraft.phase === "complete" ? "Final standings" : "Standings & bracket"}
+              </LinkButton>
+            ) : state.myTeamId ? (
+              <LinkButton href={`/leagues/${leagueId}/team`}>My Team</LinkButton>
+            ) : null}
             <LinkButton href={`/leagues/${leagueId}`} variant="secondary">
               League home
             </LinkButton>
@@ -477,7 +519,7 @@ export function DraftRoom({ leagueId, initial, roster, scheduledLabel, projectio
     <div>
       <ClockBanner state={state} team={onClockTeam} mine={isMyTurn} untilMine={untilMine} skewMs={skewMs} />
       <div className="space-y-3">
-        <ConnectionNotice connection={connection} />
+        <ConnectionNotice connection={connection} leagueId={leagueId} />
         {state.status === "paused" && !state.isCommissioner ? (
           <Notice tone="warn">The commissioner paused the draft. Hang tight!</Notice>
         ) : null}
@@ -584,7 +626,7 @@ function PreDraft({
           </li>
           <li className="text-muted">
             Snake order: round 1 goes 1 → {Math.max(n, 1)}, round 2 comes back {Math.max(n, 1)} → 1. If your clock runs out,
-            we pick for you from your queue, then your open spots, then preseason rank.
+            we pick for you from your queue, then your open spots, then draft rank.
           </li>
         </ul>
         {state.isCommissioner ? (

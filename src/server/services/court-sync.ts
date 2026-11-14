@@ -29,12 +29,13 @@
  * - CourtListener "sanctioned" suggestions have no lawyer (the commissioner
  *   picks one); verdicts with an explicit winner also get a pending
  *   verdict_loss for the other side.
+ * - Demo pools (pools.is_demo) are fictional and never sync.
  *
  * No runtime import of "@/db" (the seed script and tests can import this).
  */
 import { and, asc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import type { DbOrTx } from "@/db";
-import { caseAppearances, cases, lawyers, leagues, scoringEvents, type Case } from "@/db/schema";
+import { caseAppearances, cases, lawyers, leagues, pools, scoringEvents, type Case } from "@/db/schema";
 import { courtIdFromText, docketNumbersMatch, docketSearchTerm } from "@/lib/court/courts";
 import { normalizeScotusDocket, parseScotusDocket, scotusJsonUrl, type ScotusDocket } from "@/lib/court/scotus";
 import { FIRST_SYNC_DAYS, planCourtListener, planScotus, type PlannedEvent } from "@/lib/court/sync-plan";
@@ -271,10 +272,17 @@ async function syncLoaded(db: DbOrTx, c: Case, now: Date, maxPages = CL_PAGES_PE
   };
 }
 
+export const DEMO_POOL_MESSAGE = "Demo pool cases are fictional, so they don't sync court data.";
+
 /** Pull new activity for one case and create pending suggestions. */
 export async function syncCase(db: DbOrTx, caseId: string, now: Date = new Date()): Promise<SyncResult> {
-  const [c] = await db.select().from(cases).where(eq(cases.id, caseId));
-  if (!c) throw new UserError("That case doesn't exist.");
+  const [row] = await db.select({ c: cases, isDemo: pools.isDemo }).from(cases).innerJoin(pools, eq(pools.id, cases.poolId)).where(eq(cases.id, caseId));
+  if (!row) throw new UserError("That case doesn't exist.");
+  const c = row.c;
+  if (row.isDemo) {
+    const source = syncSourceForCase(c) ?? (c.caseType === "supreme_court" ? "scotus" : "courtlistener");
+    return { caseId: c.id, caption: c.caption, source, newEntries: 0, suggestions: 0, error: DEMO_POOL_MESSAGE };
+  }
   return (await syncLoaded(db, c, now)).result;
 }
 
@@ -308,7 +316,7 @@ export class RateWindow {
 
 /**
  * Daily run (cron): sync every active case in every pool used by a league that
- * is drafting/in season/in playoffs. Supreme Court cases all sync; CourtListener
+ * is drafting/in season/in playoffs (demo pools excluded). Supreme Court cases all sync; CourtListener
  * cases are synced least-recently-synced first, stopping at `maxCourtListenerCalls`
  * API requests or `deadlineMs` (epoch ms), so a run fits the free quota and
  * Vercel's function time limit.
@@ -320,11 +328,12 @@ export async function runCourtSync(
 ): Promise<{ results: SyncResult[]; skipped: number }> {
   const maxCalls = Math.max(0, opts.maxCourtListenerCalls ?? 20);
   const deadline = opts.deadlineMs ?? Number.POSITIVE_INFINITY;
-  const pools = await db
+  const activePools = await db
     .selectDistinct({ poolId: leagues.poolId })
     .from(leagues)
-    .where(inArray(leagues.status, [...ACTIVE_LEAGUE_STATUSES]));
-  if (pools.length === 0) return { results: [], skipped: 0 };
+    .innerJoin(pools, eq(pools.id, leagues.poolId))
+    .where(and(inArray(leagues.status, [...ACTIVE_LEAGUE_STATUSES]), eq(pools.isDemo, false)));
+  if (activePools.length === 0) return { results: [], skipped: 0 };
   const rows = await db
     .select()
     .from(cases)
@@ -332,7 +341,7 @@ export async function runCourtSync(
       and(
         inArray(
           cases.poolId,
-          pools.map((p) => p.poolId),
+          activePools.map((p) => p.poolId),
         ),
         eq(cases.status, "active"),
       ),
@@ -461,7 +470,8 @@ export function matchingDockets(c: { docketNumber: string; court: string }, resu
  * Links only an unambiguous match. Cases without one are marked
  * (cases.syncError = AUTO_LINK_NOT_FOUND) and skipped by later runs (link them
  * by hand). `notFound` lists their captions; `remaining` counts unlinked,
- * unmarked cases not tried yet (max reached or rate limit). Throws
+ * unmarked cases not tried yet (max reached or rate limit). Throws UserError
+ * for demo pools, and
  * CourtListenerError when not connected, or when the very first request fails.
  */
 export async function autoLinkPoolCases(
@@ -470,6 +480,9 @@ export async function autoLinkPoolCases(
   opts: { max?: number } = {},
 ): Promise<{ linked: { caseId: string; docketId: number }[]; notFound: string[]; remaining: number }> {
   const max = Math.max(0, Math.floor(opts.max ?? CL_PER_MINUTE));
+  const [pool] = await db.select({ isDemo: pools.isDemo }).from(pools).where(eq(pools.id, poolId));
+  if (!pool) throw new UserError("That player pool doesn't exist.");
+  if (pool.isDemo) throw new UserError(DEMO_POOL_MESSAGE);
   const candidates = await db
     .select({ id: cases.id, caption: cases.caption, court: cases.court, docketNumber: cases.docketNumber })
     .from(cases)

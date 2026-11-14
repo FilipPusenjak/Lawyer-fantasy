@@ -289,9 +289,22 @@ const STOP_BEFORE_BY = new Set([
   "conducted",
 ]);
 
+const ABBREVIATIONS = new Set(["inc", "corp", "ltd", "llc", "llp", "co", "jr", "sr", "no", "st", "dept", "assn", "bros", "intl", "natl", "mr", "ms", "dr"]);
+
+/** A filer/mover fragment ends at "as to", "re", "(", ";" or a sentence break (not "U.S. Department" or "Inc. and"). */
 function cutFragment(s: string): string {
-  const stop = /\s(as to|re:?|regarding|in support|in opposition|responding to|pursuant to|on behalf of|with respect to)\s|;|\(|\.\s+(?=[a-z]{4,}\s)/.exec(s);
-  return (stop ? s.slice(0, stop.index) : s).slice(0, 160).trim();
+  let end = s.length;
+  const stop = /\s(as to|re:?|regarding|in support|in opposition|responding to|pursuant to|on behalf of|with respect to)\s|;|\(/.exec(s);
+  if (stop) end = stop.index;
+  const sentence = /\.\s+(?=[a-z]{4,}\s)/g;
+  for (let m: RegExpExecArray | null; (m = sentence.exec(s)) && m.index < end; ) {
+    const word = /([a-z]+)$/.exec(s.slice(0, m.index))?.[1] ?? "";
+    if (word.length >= 3 && !ABBREVIATIONS.has(word)) {
+      end = m.index;
+      break;
+    }
+  }
+  return s.slice(0, end).slice(0, 160).trim();
 }
 
 /** The filer of a motion/brief: last "filed by X", else "by X", else "motion of X". */
@@ -450,8 +463,9 @@ function sanctions(l: string, ctx: Ctx): DocketClassification | null {
     if (!r.granted) return event("motion_denied", r.mover, `Order denying a motion for sanctions (${sideNote(r.mover, "moving party")})`);
     return event("sanctioned", null, "Order granting sanctions (pick the sanctioned lawyer)");
   }
-  if (/\bshow cause\b/.test(l) && !/\b(impos\w+|award\w*)\b/.test(l)) return skip("Show-cause order (no sanction imposed yet)");
-  if (/\b(impos\w+|award\w*)\b[^.;]{0,60}\bsanctions?\b|\bsanctions?\b[^.;]{0,20}\b(are|is|be)\s+(hereby\s+)?(imposed|awarded|granted)\b|\bsanctioning\b|\b(is|are) (hereby )?sanctioned\b/.test(l)) {
+  const imposed = /\b(imposing|hereby impose[sd]?)\b[^.;]{0,60}\bsanctions?\b|\bsanctions?\b[^.;]{0,20}\b(are|is)\s+(hereby\s+)?(imposed|awarded|granted)\b|\bsanctioning\b|\b(is|are) (hereby )?sanctioned\b/;
+  if (/\bshow cause\b|\bshould not be (imposed|sanctioned)\b/.test(l) && !imposed.test(l)) return skip("Show-cause order (no sanction imposed yet)");
+  if (imposed.test(l) || /\b(impos\w+|award\w*)\b[^.;]{0,60}\bsanctions?\b/.test(l)) {
     return event("sanctioned", null, "Order imposing sanctions (pick the sanctioned lawyer)");
   }
   return null;

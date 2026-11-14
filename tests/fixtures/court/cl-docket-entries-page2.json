@@ -1,0 +1,23 @@
+{
+  "next": "https://www.courtlistener.com/api/rest/v4/docket-entries/?cursor=cD0yMDI2LTExLTEw&docket=68571705&omit=recap_documents__plain_text&order_by=date_modified",
+  "previous": "https://www.courtlistener.com/api/rest/v4/docket-entries/?cursor=cj0x&docket=68571705",
+  "results": [
+    {
+      "id": 400000003,
+      "recap_documents": [],
+      "date_modified": "2026-11-10T09:30:00.000000-08:00",
+      "date_filed": "2026-11-09",
+      "entry_number": null,
+      "description": "",
+      "tags": []
+    },
+    {
+      "id": 400000004,
+      "recap_documents": [{ "id": 500000004, "absolute_url": "", "document_number": "", "description": "Minute Entry" }],
+      "date_modified": "2026-11-10T09:31:00.000000-08:00",
+      "date_filed": "2026-11-10",
+      "entry_number": 1603,
+      "description": "Minute Entry for proceedings held before Judge Arun Subramanian: Status Conference held on 11/10/2026."
+    }
+  ]
+}

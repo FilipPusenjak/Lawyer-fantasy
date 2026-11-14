@@ -1,0 +1,10 @@
+{
+  "current_usage": [
+    { "scope": "user", "rate": "125/day", "used": 5, "limit": 125, "remaining": 120, "window_seconds": 86400, "reset_at": null, "blocked": false },
+    { "scope": "user", "rate": "5/min", "used": 1, "limit": 5, "remaining": 4, "window_seconds": 60, "reset_at": null, "blocked": false },
+    { "scope": "user", "rate": "50/hour", "used": 3, "limit": 50, "remaining": 47, "window_seconds": 3600, "reset_at": null, "blocked": false },
+    { "scope": "api_usage", "rate": "60/min", "used": 1, "limit": 60, "remaining": 59, "window_seconds": 60, "reset_at": null, "blocked": false }
+  ],
+  "historical_usage": { "2026-11-13": 12 },
+  "membership": null
+}

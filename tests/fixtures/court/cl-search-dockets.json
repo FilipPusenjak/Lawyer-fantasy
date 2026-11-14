@@ -1,0 +1,48 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "assignedTo": "Arun Subramanian",
+      "assigned_to_id": 9999,
+      "caseName": "United States v. Live Nation Entertainment, Inc.",
+      "cause": "15:4 Antitrust Litigation",
+      "court": "District Court, S.D. New York",
+      "court_citation_string": "S.D.N.Y.",
+      "court_id": "nysd",
+      "dateArgued": null,
+      "dateFiled": "2024-05-23",
+      "dateTerminated": null,
+      "docketNumber": "1:24-cv-03973",
+      "docket_absolute_url": "/docket/68571705/united-states-v-live-nation-entertainment-inc/",
+      "docket_id": 68571705,
+      "juryDemand": "Plaintiff",
+      "referredTo": null,
+      "suitNature": "410 Anti-Trust",
+      "attorney": ["Andrew M. Gass", "Brian Rabinovitz"],
+      "attorney_id": [101, 202],
+      "firm": ["Latham & Watkins LLP"],
+      "firm_id": [303],
+      "party": ["United States of America", "Live Nation Entertainment, Inc.", "Ticketmaster L.L.C."],
+      "party_id": [1, 2, 3],
+      "meta": { "timestamp": "2026-11-01T00:00:00Z", "date_created": "2024-05-23T00:00:00Z", "score": { "bm25": 12.3 } }
+    },
+    {
+      "caseName": "<mark>Live</mark> Nation Merchandise v. Doe",
+      "court": "District Court, C.D. California",
+      "court_id": "cacd",
+      "dateFiled": "2025-01-02",
+      "dateTerminated": "2025-06-30",
+      "docketNumber": "2:25-cv-00001",
+      "docket_absolute_url": "/docket/70000001/live-nation-merchandise-v-doe/",
+      "docket_id": 70000001,
+      "attorney": null,
+      "attorney_id": null,
+      "firm": null,
+      "firm_id": null,
+      "party": null
+    },
+    { "caseName": "Broken row without an id" }
+  ]
+}

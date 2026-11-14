@@ -1,0 +1,46 @@
+{
+  "next": "https://www.courtlistener.com/api/rest/v4/docket-entries/?cursor=cD0yMDI2LTExLTA1&docket=68571705&omit=recap_documents__plain_text&order_by=date_modified",
+  "previous": null,
+  "results": [
+    {
+      "resource_uri": "https://www.courtlistener.com/api/rest/v4/docket-entries/400000001/",
+      "id": 400000001,
+      "docket": "https://www.courtlistener.com/api/rest/v4/dockets/68571705/",
+      "recap_documents": [
+        {
+          "resource_uri": "https://www.courtlistener.com/api/rest/v4/recap-documents/500000001/",
+          "id": 500000001,
+          "absolute_url": "/docket/68571705/1601/united-states-v-live-nation-entertainment-inc/",
+          "document_number": "1601",
+          "attachment_number": null,
+          "description": "Memorandum of Law in Opposition",
+          "is_available": true
+        }
+      ],
+      "date_created": "2026-11-03T08:00:00.000000-08:00",
+      "date_modified": "2026-11-03T08:00:01.123456-08:00",
+      "date_filed": "2026-11-02",
+      "entry_number": 1601,
+      "recap_sequence_number": "2026-11-02.001",
+      "pacer_sequence_number": null,
+      "description": "MEMORANDUM OF LAW in Opposition re: 1590 MOTION to Exclude . . Document filed by United States of America..(Rabinovitz, Brian) (Entered: 11/02/2026)",
+      "tags": []
+    },
+    {
+      "id": 400000002,
+      "recap_documents": [
+        {
+          "id": 500000002,
+          "absolute_url": "/docket/68571705/1602/2/united-states-v-live-nation-entertainment-inc/",
+          "document_number": "1602",
+          "attachment_number": 2,
+          "description": "Exhibit B"
+        }
+      ],
+      "date_modified": "2026-11-04T10:00:00.000000-08:00",
+      "date_filed": "2026-11-04",
+      "entry_number": 1602,
+      "description": "ORDER granting 1590 Motion to Exclude filed by Live Nation Entertainment, Inc. Signed by Judge Arun Subramanian on 11/4/2026. (jw) (Entered: 11/04/2026)"
+    }
+  ]
+}

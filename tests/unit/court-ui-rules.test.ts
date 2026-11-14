@@ -38,7 +38,7 @@ class FakeClError extends Error {
 describe("URLs", () => {
   it("builds the Supreme Court docket and CourtListener docket links", () => {
     expect(scotusDocketUrl("25-159")).toBe("https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/25-159.html");
-    expect(courtListenerDocketUrl(68571705)).toBe("https://www.courtlistener.com/docket/68571705/");
+    expect(courtListenerDocketUrl(68571705)).toBe("https://www.courtlistener.com/docket/68571705/docket/");
   });
 
   it("only accepts https courtlistener.com URLs", () => {
@@ -356,6 +356,19 @@ describe("courtStats", () => {
   });
 
   it("handles an empty pool", () => {
-    expect(courtStats([], source)).toEqual({ scotusTracked: 0, scotusNeedsDocket: 0, linked: 0, unlinked: 0, lastSyncedAt: null, errors: [] });
+    expect(courtStats([], source)).toEqual({ scotusTracked: 0, scotusNeedsDocket: 0, linked: 0, unlinked: 0, lastSyncedAt: null, errors: [], notFound: 0 });
+  });
+});
+
+describe("lead fixes", () => {
+  it("docket URLs include a slug (CourtListener routes /docket/<id>/<slug>/)", async () => {
+    const { courtListenerDocketUrl } = await import("@/app/leagues/[leagueId]/commish/court/court-rules");
+    expect(courtListenerDocketUrl(123, "Acme Corp. v. Widget, Inc.")).toBe("https://www.courtlistener.com/docket/123/acme-corp-v-widget-inc/");
+    expect(courtListenerDocketUrl(123)).toBe("https://www.courtlistener.com/docket/123/docket/");
+  });
+  it("the not-found marker matches the sync service's", async () => {
+    const { NOT_FOUND_MARKER } = await import("@/app/leagues/[leagueId]/commish/court/court-rules");
+    const { AUTO_LINK_NOT_FOUND } = await import("@/server/services/court-sync");
+    expect(NOT_FOUND_MARKER).toBe(AUTO_LINK_NOT_FOUND);
   });
 });

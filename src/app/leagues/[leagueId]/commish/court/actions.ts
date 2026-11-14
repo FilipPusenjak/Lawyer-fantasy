@@ -107,7 +107,7 @@ function pickDocket(d: ClDocket): ClDocket {
     courtId: d.courtId,
     dateFiled: d.dateFiled ?? null,
     dateTerminated: d.dateTerminated ?? null,
-    url: isCourtListenerUrl(d.url) ? d.url : courtListenerDocketUrl(d.docketId),
+    url: isCourtListenerUrl(d.url) ? d.url : courtListenerDocketUrl(d.docketId, d.caseName),
     attorneys: (d.attorneys ?? []).slice(0, 60),
     firms: (d.firms ?? []).slice(0, 60),
     parties: (d.parties ?? []).slice(0, 20),
@@ -251,7 +251,7 @@ async function captionsFor(poolId: string, refs: string[]): Promise<string[]> {
   return refs.map((r) => byId.get(r) ?? r);
 }
 
-/** "Auto-link next 10": match unlinked federal cases to dockets by docket number. */
+/** "Auto-link next 5": match unlinked federal cases to dockets by docket number. */
 export async function autoLinkAction(leagueId: string): Promise<ActionResult> {
   return runAction(async () => {
     const poolId = await poolAccess(leagueId);
@@ -351,7 +351,7 @@ export async function addCaseFromDocketAction(leagueId: string, _prev: unknown, 
           caseType: d.caseType,
           status,
           filedOn: d.dateFiled || null,
-          sourceUrl: isCourtListenerUrl(d.url) ? d.url : courtListenerDocketUrl(d.docketId),
+          sourceUrl: isCourtListenerUrl(d.url) ? d.url : courtListenerDocketUrl(d.docketId, d.caseName),
         });
         await linkCaseToDocket(tx, poolId, c.id, d.docketId);
         return c;

@@ -18,14 +18,25 @@ const poolLawyers = [
 ];
 
 describe("suggestionCutoff", () => {
-  it("14 days back on the first sync, 30 later", () => {
+  it("14 days back on the first sync, 30 later, never before the season start", () => {
     expect(suggestionCutoff(now, true)).toBe("2026-10-31");
     expect(suggestionCutoff(now, false)).toBe("2026-10-15");
+    expect(suggestionCutoff(now, false, "2026-11-09")).toBe("2026-11-09");
+    expect(suggestionCutoff(now, true, "2026-09-07")).toBe("2026-10-31");
+    expect(suggestionCutoff(now, true, null)).toBe("2026-10-31");
   });
 });
 
 describe("planScotus", () => {
-  const base = { docket: "25-159", proceedings: hoffmann.proceedings, now, caseLawyers, poolLawyers, ...hoffmann };
+  const base = {
+    docket: "25-159",
+    proceedings: hoffmann.proceedings,
+    now,
+    caseLawyers,
+    poolLawyers,
+    petitionerTitle: hoffmann.petitionerTitle,
+    respondentTitle: hoffmann.respondentTitle,
+  };
 
   it("first sync: only the last 14 days (the argument), cursor past everything", () => {
     const plan = planScotus({ ...base, cursor: null });
@@ -55,6 +66,13 @@ describe("planScotus", () => {
     expect(plan.events.map((e) => e.type)).toEqual(["filing", "scotus_argument", "scotus_argument", "scotus_argument"]);
     expect(plan.events[0]).toMatchObject({ side: "plaintiff", lawyerId: null, externalRef: "scotus:25-159:37", occurredOn: "2026-10-14" });
     expect(plan.events[0].sourceUrl).toMatch(/^https:\/\/www\.supremecourt\.gov\/DocketPDF\//);
+  });
+
+  it("before the season starts (league in setup): cursor moves, nothing is suggested", () => {
+    const plan = planScotus({ ...base, cursor: null, notBefore: "2027-01-04" });
+    expect(plan).toMatchObject({ events: [], newEntries: 39, nextCursor: "39" });
+    // Activity on/after the season start is suggested.
+    expect(planScotus({ ...base, cursor: null, notBefore: "2026-11-09" }).events).toHaveLength(3);
   });
 
   it("arguers who aren't in the pool are skipped", () => {
@@ -127,6 +145,17 @@ describe("planCourtListener", () => {
     const plan = planCourtListener({ ...base, cursor: "2026-11-01T00:00:00Z", entries: [entry(9, "2025-01-15", "MOTION to Dismiss by Acme Corp.", "2026-11-12T00:00:00Z")] });
     expect(plan.events).toEqual([]);
     expect(plan.nextCursor).toBe("2026-11-12T00:00:00Z");
+  });
+
+  it("entries before the earliest season start only move the cursor", () => {
+    const plan = planCourtListener({
+      ...base,
+      cursor: "2026-11-01T00:00:00Z",
+      notBefore: "2026-11-09",
+      entries: [entry(7, "2026-11-03", "MOTION to Compel by Plaintiff Jane Doe."), entry(8, "2026-11-12", "MOTION to Compel by Plaintiff Jane Doe.")],
+    });
+    expect(plan.events.map((e) => e.externalRef)).toEqual(["cl-entry:8"]);
+    expect(plan.newEntries).toBe(2);
   });
 
   it("verdicts with a winner also suggest the loss for the other side", () => {

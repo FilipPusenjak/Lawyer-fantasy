@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { leagues } from "@/db/schema";
-import { runCourtSync, type SyncResult } from "@/server/services/court-sync";
+import { runCourtSync, type AutoLinkRun, type SyncResult } from "@/server/services/court-sync";
 import { runLeagueMaintenance } from "@/server/services/maintenance";
 
 /**
@@ -10,7 +10,8 @@ import { runLeagueMaintenance } from "@/server/services/maintenance";
  * "Authorization: Bearer <CRON_SECRET>". Runs lazy maintenance (waivers,
  * trade reviews, …) for every active league so they stay current even when
  * nobody opens the app, then pulls court data (Supreme Court feed +
- * CourtListener) into pending suggestions for the commissioners.
+ * CourtListener) into pending suggestions for the commissioners, auto-linking
+ * a few unlinked federal cases to CourtListener dockets first.
  */
 export const dynamic = "force-dynamic";
 /** Vercel Hobby's limit. Court sync paces CourtListener requests (5/min) and stops at COURT_SYNC_BUDGET_MS. */
@@ -18,7 +19,7 @@ export const maxDuration = 300;
 
 /** Court sync must finish this long after the route starts (leaves ~30 s of the 300 s for the response). */
 const COURT_SYNC_BUDGET_MS = 270_000;
-/** CourtListener requests per daily run (free tier: 125/day shared with the commissioner screens). */
+/** CourtListener requests per daily run, auto-linking included (free tier: 125/day shared with the commissioner screens). */
 const COURT_SYNC_MAX_CALLS = 20;
 
 const ACTIVE_STATUSES = ["drafting", "in_season", "playoffs"] as const;
@@ -65,7 +66,18 @@ export async function GET(request: Request) {
 
   // Court data. Per-case problems are recorded on the case (cases.syncError) and
   // listed here; they don't fail the run. Only a crash of the whole sync does.
-  let court: { ok: boolean; cases: number; suggestions: number; skipped: number; errors: number; ms: number; results: SyncResult[]; error?: string };
+  let court: {
+    ok: boolean;
+    cases: number;
+    suggestions: number;
+    skipped: number;
+    errors: number;
+    linked: number;
+    ms: number;
+    autoLinked: AutoLinkRun[];
+    results: SyncResult[];
+    error?: string;
+  };
   const t0 = Date.now();
   try {
     const sync = await runCourtSync(db, new Date(), {
@@ -78,7 +90,9 @@ export async function GET(request: Request) {
       suggestions: sync.results.reduce((n, r) => n + r.suggestions, 0),
       skipped: sync.skipped,
       errors: sync.results.filter((r) => r.error).length,
+      linked: sync.autoLinked.reduce((n, a) => n + a.linked, 0),
       ms: Date.now() - t0,
+      autoLinked: sync.autoLinked,
       results: sync.results,
     };
   } catch (e) {
@@ -89,7 +103,9 @@ export async function GET(request: Request) {
       suggestions: 0,
       skipped: 0,
       errors: 0,
+      linked: 0,
       ms: Date.now() - t0,
+      autoLinked: [],
       results: [],
       error: e instanceof Error ? e.message : String(e),
     };

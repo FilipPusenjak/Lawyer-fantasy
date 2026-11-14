@@ -244,7 +244,7 @@ describe("autoLinkAction", () => {
     vi.mocked(sync.autoLinkPoolCases).mockResolvedValue({ linked: [{ caseId: CASE, docketId: 1 }], notFound: [LAWYER], remaining: 4 });
     h.state.rows = [{ id: LAWYER, caption: "Missing v. Case" }];
     const r = await autoLinkAction(LEAGUE);
-    expect(sync.autoLinkPoolCases).toHaveBeenCalledWith(h.db, "pool-1", { max: 10 });
+    expect(sync.autoLinkPoolCases).toHaveBeenCalledWith(h.db, "pool-1", { max: 5 });
     expect(r).toEqual({ ok: true, message: "Linked 1 case. Not found on CourtListener: Missing v. Case. 4 cases still to check.", data: undefined });
   });
 });
@@ -283,7 +283,7 @@ describe("addCaseFromDocketAction", () => {
     await addCaseFromDocketAction(LEAGUE, null, form({ ...fields, dateTerminated: "2025-01-02", url: "https://evil.example/x" }));
     expect(vi.mocked(pool.createCase).mock.calls[0][2]).toMatchObject({
       status: "closed",
-      sourceUrl: "https://www.courtlistener.com/docket/68571705/",
+      sourceUrl: "https://www.courtlistener.com/docket/68571705/united-states-v-live-nation-entertainment-inc/",
     });
   });
 

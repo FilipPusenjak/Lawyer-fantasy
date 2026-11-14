@@ -20,7 +20,8 @@ export const FREE_LIMIT_NOTE =
 export const COVERAGE_NOTE = "Filings come from CourtListener when available. Some filings never show up there.";
 
 /** Cases per "Auto-link" click (each can use one CourtListener request). */
-export const AUTO_LINK_BATCH = 10;
+/** CourtListener's free tier allows 5 requests a minute, so link 5 cases per click. */
+export const AUTO_LINK_BATCH = 5;
 /** Minimum time between manual CourtListener syncs of one case. */
 export const SYNC_COOLDOWN_MS = 60_000;
 
@@ -55,9 +56,22 @@ export function scotusDocketUrl(docket: string): string {
   return `https://www.supremecourt.gov/search.aspx?filename=/docket/docketfiles/html/public/${encodeURIComponent(docket)}.html`;
 }
 
-export function courtListenerDocketUrl(docketId: number): string {
-  return `https://www.courtlistener.com/docket/${docketId}/`;
+/**
+ * CourtListener routes docket pages as /docket/<id>/<slug>/ (the slug is
+ * ignored but required), so always include one.
+ */
+export function courtListenerDocketUrl(docketId: number, caption?: string | null): string {
+  const slug =
+    (caption ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "docket";
+  return `https://www.courtlistener.com/docket/${docketId}/${slug}/`;
 }
+
+/** cases.syncError marker set by auto-link when no docket matched (same text as AUTO_LINK_NOT_FOUND in court-sync). */
+export const NOT_FOUND_MARKER = "Not found on CourtListener";
 
 /** True for an https URL on courtlistener.com (used to accept a docket URL sent back by the client). */
 export function isCourtListenerUrl(s: string): boolean {
@@ -504,14 +518,17 @@ export type CourtStats = {
   lastSyncedAt: Date | null;
   /** Active cases whose last sync failed. */
   errors: { id: string; caption: string; error: string; syncedAt: Date | null }[];
+  /** Active federal cases auto-link couldn't match (link them by hand from the case page). */
+  notFound: number;
 };
 
 export function courtStats(rows: CourtCaseRow[], sourceFor: (c: CourtCaseRow) => SyncSource | null): CourtStats {
-  const s: CourtStats = { scotusTracked: 0, scotusNeedsDocket: 0, linked: 0, unlinked: 0, lastSyncedAt: null, errors: [] };
+  const s: CourtStats = { scotusTracked: 0, scotusNeedsDocket: 0, linked: 0, unlinked: 0, lastSyncedAt: null, errors: [], notFound: 0 };
   for (const c of rows) {
     if (c.syncedAt && (!s.lastSyncedAt || c.syncedAt.getTime() > s.lastSyncedAt.getTime())) s.lastSyncedAt = c.syncedAt;
     if (c.status !== "active") continue;
-    if (c.syncError) s.errors.push({ id: c.id, caption: c.caption, error: c.syncError, syncedAt: c.syncedAt });
+    if (c.syncError === NOT_FOUND_MARKER) s.notFound++;
+    else if (c.syncError) s.errors.push({ id: c.id, caption: c.caption, error: c.syncError, syncedAt: c.syncedAt });
     if (sourceFor(c) === "scotus") s.scotusTracked++;
     else if (c.courtlistenerDocketId != null) s.linked++;
     else if (c.caseType === "supreme_court") s.scotusNeedsDocket++;

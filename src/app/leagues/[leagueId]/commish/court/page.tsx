@@ -67,6 +67,7 @@ export default async function CourtDataPage({ params }: PageProps<"/leagues/[lea
             <dt className="text-muted">CourtListener</dt>
             <dd className="font-semibold">
               {stats.linked} linked · {stats.unlinked} not
+              {stats.notFound > 0 ? ` (${stats.notFound} need linking by hand)` : ""}
             </dd>
           </div>
         </dl>

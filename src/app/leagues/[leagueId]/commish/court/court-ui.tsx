@@ -85,7 +85,7 @@ export function CaseCourtCard({ leagueId, c, timeZone }: { leagueId: string; c: 
         <p className="text-sm">
           Linked to CourtListener docket #{c.courtlistenerDocketId}. New filings become suggestions in the review queue. {COVERAGE_NOTE}
         </p>
-        <ExternalLink href={courtListenerDocketUrl(c.courtlistenerDocketId)}>View docket on CourtListener ↗</ExternalLink>
+        <ExternalLink href={courtListenerDocketUrl(c.courtlistenerDocketId, c.caption)}>View docket on CourtListener ↗</ExternalLink>
         <SyncStatus syncedAt={c.syncedAt} syncError={c.syncError} timeZone={timeZone} />
         {closedNote}
         {configured ? <SyncNowForm action={syncCaseAction.bind(null, leagueId, c.id)} reviewHref={reviewHref} /> : <ConnectNotice />}

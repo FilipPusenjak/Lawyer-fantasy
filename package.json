@@ -16,6 +16,7 @@
     "make-admin": "tsx --env-file=.env.local scripts/make-admin.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@neondatabase/serverless": "^1.2.1",
     "drizzle-orm": "^0.45.4",
     "next": "16.4.6",

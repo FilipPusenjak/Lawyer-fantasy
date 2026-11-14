@@ -199,6 +199,12 @@ export const scoringEvents = pgTable(
     origin: eventOriginEnum("origin").notNull().default("manual"),
     /** Phase 2: e.g. "cl-docket-entry:12345" to avoid duplicate suggestions. */
     externalRef: text("external_ref"),
+    /** Automatic suggestions: neutral reason the type/side was suggested (keyword rule or Claude). */
+    suggestionNote: text("suggestion_note"),
+    /** Phase 3: Claude's confidence in its suggestion ("high" | "medium" | "low"); null for keyword rules. */
+    suggestionConfidence: text("suggestion_confidence"),
+    /** Phase 3: the Claude model that sorted this suggestion; null = keyword rules. */
+    suggestionModel: text("suggestion_model"),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),

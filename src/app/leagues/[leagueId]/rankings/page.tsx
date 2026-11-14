@@ -230,8 +230,17 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                 >
                   <div className="flex w-12 shrink-0 flex-col items-center gap-1 pt-0.5">
                     <span className="font-display text-lg font-bold leading-none tabular-nums">
-                      <span className="sr-only">{byDraft ? "Draft rank " : "Overall rank "}</span>
-                      {byDraft ? (r.preseasonRank ?? "–") : r.overallRank}
+                      {byDraft && r.preseasonRank === null ? (
+                        <>
+                          <span aria-hidden>–</span>
+                          <span className="sr-only">No draft rank</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="sr-only">{byDraft ? "Draft rank " : "Overall rank "}</span>
+                          {byDraft ? r.preseasonRank : r.overallRank}
+                        </>
+                      )}
                     </span>
                     {byDraft ? (
                       draftPosRank ? (

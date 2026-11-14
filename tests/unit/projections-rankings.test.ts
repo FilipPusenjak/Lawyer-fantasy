@@ -153,6 +153,24 @@ describe("rankings filters", () => {
     expect(filterRankRows(rows, { ...f, sort: "draft" }, null).map((r) => r.lawyerId)).toEqual(["3", "1", "2"]);
   });
 
+  it("draft rank ties break by name, like the draft room and auto-pick (not by projection)", () => {
+    const row = (lawyerId: string, name: string, preseasonRank: number | null, projectedWeek: number) => ({
+      lawyerId,
+      name,
+      position: "defense" as const,
+      projectedWeek,
+      restOfSeason: projectedWeek * 10,
+      preseasonRank,
+      status: { kind: "free_agent" as const },
+    });
+    const rows = [row("z", "Zed Adams", 18, 9), row("s", "Brian Steel", 18, 1), row("u2", "Ann Unranked", null, 0), row("u1", "Zoe Unranked", null, 9)];
+    const f = { ...parseRankFilters({}), sort: "draft" as const };
+    expect(filterRankRows(rows, f, null).map((r) => r.lawyerId)).toEqual(["s", "z", "u2", "u1"]);
+    const pos = draftPositionRanks(rows);
+    expect(pos.get("s")).toBe(1);
+    expect(pos.get("z")).toBe(2);
+  });
+
   it("opens on draft rank until the draft is over, then on projections", () => {
     expect(defaultRankFilters("setup").sort).toBe("draft");
     expect(defaultRankFilters("drafting").sort).toBe("draft");

@@ -95,11 +95,14 @@ export type RankRow = {
   status: RankRowStatus;
 };
 
-/** Draft rank first (unranked last), then the usual projection order. */
+/**
+ * Draft rank first (unranked last), ties by name then id: the same order as
+ * the draft room (compareByRank) and auto-pick (byRank in src/lib/draft.ts).
+ */
 export function compareDraftRank(a: RankRow, b: RankRow): number {
   const ra = a.preseasonRank ?? Number.MAX_SAFE_INTEGER;
   const rb = b.preseasonRank ?? Number.MAX_SAFE_INTEGER;
-  return ra - rb || compareProjections(a, b);
+  return ra - rb || a.name.localeCompare(b.name) || a.lawyerId.localeCompare(b.lawyerId);
 }
 
 /** Position rank by draft rank across the whole pool ("DEF5" = 5th defense attorney in draft order). */

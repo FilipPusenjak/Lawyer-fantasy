@@ -27,7 +27,7 @@ export function PageHeader({ title, subtitle, action }: { title: ReactNode; subt
 
 export function Card({ children, className, ...rest }: ComponentProps<"section">) {
   return (
-    <section className={cx("rounded-2xl border border-line bg-surface p-4 shadow-sm", className)} {...rest}>
+    <section className={cx("lf-card rounded-2xl border border-line bg-surface p-4 shadow-sm", className)} {...rest}>
       {children}
     </section>
   );
@@ -36,7 +36,7 @@ export function Card({ children, className, ...rest }: ComponentProps<"section">
 export function CardTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">{children}</h2>
+      <h2 className="lf-card-title text-sm font-semibold uppercase tracking-wide text-muted">{children}</h2>
       {action}
     </div>
   );
@@ -44,7 +44,7 @@ export function CardTitle({ children, action }: { children: ReactNode; action?: 
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 const buttonBase =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
+  "lf-btn inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50";
 const buttonVariants: Record<ButtonVariant, string> = {
   primary: "bg-brand text-brand-ink hover:opacity-90",
   secondary: "border border-line bg-surface text-ink hover:bg-surface-2",

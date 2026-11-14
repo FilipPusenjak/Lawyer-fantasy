@@ -3,43 +3,61 @@
 /*
  * Design tokens. Use these via Tailwind utilities, e.g. bg-surface,
  * text-muted, border-line, bg-brand, text-brand-ink, text-pos, text-neg.
+ *
+ * Two themes, chosen on <html data-theme="…">:
+ *   gamenight — dark sports-app look: lime highlights, condensed headings
+ *   courtroom — ivory paper, burgundy and brass, serif headings
+ * Component hooks (lf-btn, lf-card, lf-card-title) come from src/components/ui.tsx.
  */
-:root {
-  --bg: #f4f5f8;
-  --surface: #ffffff;
-  --surface-2: #eef0f5;
-  --line: #dde1ea;
-  --ink: #111827;
-  --muted: #5b6475;
-  --brand: #1e3a6e; /* navy */
-  --brand-ink: #ffffff;
-  --brand-soft: #e3e9f6;
-  --accent: #b8892c; /* gold */
-  --accent-soft: #f7efdc;
-  --pos: #12804a;
-  --neg: #c0352b;
-  --warn: #9a6400;
-  --warn-soft: #fff4dd;
+
+/* ---------- Game night ---------- */
+html[data-theme="gamenight"] {
+  color-scheme: dark;
+  --bg: #0a0e13;
+  --surface: #121921;
+  --surface-2: #1a232e;
+  --line: #253140;
+  --ink: #eef3f7;
+  --muted: #8b9aac;
+  --brand: #c6ff3d; /* electric lime */
+  --brand-ink: #0a0e13;
+  --brand-soft: #1e2a10;
+  --accent: #3fd8f2; /* cyan */
+  --accent-soft: #0e2a31;
+  --pos: #3fe08b;
+  --neg: #ff5f5f;
+  --warn: #ffc53d;
+  --warn-soft: #2e2510;
+  --font-display-active: var(--font-oswald), "Arial Narrow", sans-serif;
+  --font-body-active: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.625rem;
+  --radius-2xl: 0.875rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d111a;
-    --surface: #161c28;
-    --surface-2: #1f2737;
-    --line: #2b3446;
-    --ink: #e8ecf3;
-    --muted: #97a1b3;
-    --brand: #8fb1ee;
-    --brand-ink: #0d111a;
-    --brand-soft: #1d2a45;
-    --accent: #e0b65a;
-    --accent-soft: #3a2f17;
-    --pos: #4cc488;
-    --neg: #f07a70;
-    --warn: #f0c25a;
-    --warn-soft: #3a2f17;
-  }
+/* ---------- Courtroom ---------- */
+html[data-theme="courtroom"] {
+  color-scheme: light;
+  --bg: #f5efe3; /* ivory paper */
+  --surface: #fffcf5;
+  --surface-2: #eee4d1;
+  --line: #d9c9ab;
+  --ink: #2a1c15;
+  --muted: #76655a;
+  --brand: #7b1e2b; /* burgundy */
+  --brand-ink: #fffcf5;
+  --brand-soft: #f3e0dc;
+  --accent: #a3772a; /* brass */
+  --accent-soft: #f3e7cb;
+  --pos: #2e6b3a;
+  --neg: #a6302b;
+  --warn: #875800;
+  --warn-soft: #f7eacb;
+  --font-display-active: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-body-active: var(--font-source-sans), ui-sans-serif, system-ui, sans-serif;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.3125rem;
+  --radius-2xl: 0.375rem;
 }
 
 @theme inline {
@@ -58,7 +76,8 @@
   --color-neg: var(--neg);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-body-active);
+  --font-display: var(--font-display-active);
 }
 
 html {
@@ -68,7 +87,7 @@ html {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: var(--font-body-active);
 }
 
 /* Bigger tap targets on touch devices */
@@ -78,4 +97,74 @@ select,
 input,
 textarea {
   font-size: 16px; /* prevents iOS zoom on focus */
+}
+
+/* ---------- Headings ---------- */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display-active);
+}
+
+html[data-theme="gamenight"] h1 {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-weight: 700;
+}
+
+html[data-theme="courtroom"] h1 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- Buttons ---------- */
+html[data-theme="gamenight"] .lf-btn {
+  font-family: var(--font-display-active);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  border-radius: 9999px;
+}
+
+html[data-theme="courtroom"] .lf-btn {
+  letter-spacing: 0.01em;
+  border-radius: 0.25rem;
+}
+
+/* ---------- Cards ---------- */
+html[data-theme="gamenight"] .lf-card {
+  box-shadow: none;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface) 100%);
+}
+
+html[data-theme="courtroom"] .lf-card {
+  box-shadow: 0 1px 0 var(--line);
+  border-top: 3px double var(--line);
+}
+
+html[data-theme="gamenight"] .lf-card-title {
+  font-family: var(--font-display-active);
+  color: var(--brand);
+  letter-spacing: 0.1em;
+  font-size: 0.8rem;
+}
+
+html[data-theme="courtroom"] .lf-card-title {
+  font-family: var(--font-display-active);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 1rem;
+  font-style: italic;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+/* ---------- Scoreboard numbers ---------- */
+html[data-theme="gamenight"] .tabular-nums {
+  font-family: var(--font-display-active);
+  letter-spacing: 0.01em;
+}
+
+html[data-theme="courtroom"] .tabular-nums {
+  font-variant-numeric: lining-nums tabular-nums;
 }

@@ -611,6 +611,40 @@ export function rankProjections(
   });
 }
 
+/** Small, JSON-safe slice of a ranked projection for client components (draft room, lists). */
+export type ProjectionSummary = Pick<
+  RankedProjection,
+  "projectedWeek" | "low" | "high" | "activityRate" | "restOfSeason" | "overallRank" | "positionLabel"
+>;
+
+/** lawyerId → summary, safe to pass from a Server Component to a Client Component. */
+export function projectionSummaries(rows: readonly RankedProjection[]): Record<string, ProjectionSummary> {
+  const out: Record<string, ProjectionSummary> = {};
+  for (const r of rows) {
+    out[r.lawyerId] = {
+      projectedWeek: r.projectedWeek,
+      low: r.low,
+      high: r.high,
+      activityRate: r.activityRate,
+      restOfSeason: r.restOfSeason,
+      overallRank: r.overallRank,
+      positionLabel: r.positionLabel,
+    };
+  }
+  return out;
+}
+
+/** Sort helper: best projection rank first, lawyers without one last (then by name/id). */
+export function compareByProjectionRank(
+  summaries: Readonly<Record<string, Pick<ProjectionSummary, "overallRank">>>,
+  a: { id: string; name: string },
+  b: { id: string; name: string },
+): number {
+  const ra = summaries[a.id]?.overallRank ?? Number.MAX_SAFE_INTEGER;
+  const rb = summaries[b.id]?.overallRank ?? Number.MAX_SAFE_INTEGER;
+  return ra - rb || a.name.localeCompare(b.name, "en") || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 // ---------------------------------------------------------------------------
 // Display helpers (neutral, factual)
 // ---------------------------------------------------------------------------

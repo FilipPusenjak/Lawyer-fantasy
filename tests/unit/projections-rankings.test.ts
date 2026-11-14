@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   activityLabel,
+  compareByProjectionRank,
   compareProjections,
   fmtProjection,
   projectionInputsLine,
   projectionRangeLabel,
+  projectionSummaries,
   rankProjections,
   type LawyerProjection,
 } from "@/lib/projections";
@@ -78,6 +80,17 @@ describe("rankProjections", () => {
     const b = { lawyerId: "b", name: "Same", projectedWeek: 1, restOfSeason: 1 };
     expect(compareProjections(a, b)).toBeLessThan(0);
     expect(compareProjections(b, a)).toBeGreaterThan(0);
+  });
+});
+
+describe("projection summaries", () => {
+  it("builds a JSON-safe map and sorts by projection rank", () => {
+    const ranked = rankProjections(new Map([["3", proj("3", 5)], ["2", proj("2", 1)]]), people);
+    const s = projectionSummaries(ranked);
+    expect(JSON.parse(JSON.stringify(s))).toEqual(s);
+    expect(s["3"]).toMatchObject({ overallRank: 1, positionLabel: "PRO1", projectedWeek: 5 });
+    const list = people.map((p) => ({ id: p.id, name: p.name }));
+    expect([...list].sort((a, b) => compareByProjectionRank(s, a, b)).map((l) => l.id)).toEqual(["3", "2", "6", "4", "5", "1"]);
   });
 });
 

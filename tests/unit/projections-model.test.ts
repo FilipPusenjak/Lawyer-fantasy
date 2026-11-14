@@ -134,14 +134,14 @@ describe("projectPool — no history", () => {
 
 describe("projectPool — own history", () => {
   it("strong history dominates the prior", () => {
-    const quiet = ["q1", "q2", "q3", "q4"];
+    const others = ["q1", "q2", "q3", "q4"];
     const res = run({
-      lawyers: [lawyer("star"), ...quiet.map((q) => lawyer(q))],
-      cases: [kase("c1"), ...quiet.map((q) => kase(`case-${q}`))],
-      appearances: [app("star", "c1"), ...quiet.map((q) => app(q, `case-${q}`))],
+      lawyers: [lawyer("busy10"), ...others.map((q) => lawyer(q))],
+      cases: [kase("c1"), ...others.map((q) => kase(`case-${q}`))],
+      appearances: [app("busy10", "c1"), ...others.map((q) => app(q, `case-${q}`))],
       events: weekly(-7, 0, { caseId: "c1", customPoints: 10 }),
     });
-    const p = res.projections.get("star")!;
+    const p = res.projections.get("busy10")!;
     expect(p.inputs.observedWeeks).toBe(8);
     expect(p.inputs.ownRate).toBe(10);
     expect(p.inputs.ownWeight).toBeCloseTo(8 / 12, 2);
@@ -152,7 +152,7 @@ describe("projectPool — own history", () => {
     // 8 of 8 weeks with points, shrunk toward a pool where most weeks are scoreless.
     expect(p.activityRate).toBeGreaterThan(0.6);
     expect(p.activityRate).toBeLessThan(1);
-    // Quiet lawyers have 8 observed scoreless weeks.
+    // Other lawyers have 8 observed scoreless weeks.
     const q = res.projections.get("q1")!;
     expect(q.inputs.ownRate).toBe(0);
     expect(q.projectedWeek).toBeLessThan(p.projectedWeek);

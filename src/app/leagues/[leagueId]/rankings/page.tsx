@@ -7,6 +7,7 @@ import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { plural } from "@/lib/format";
 import {
   activityLabel,
+  DEFAULT_PROJECTION_OPTIONS,
   fmtProjection,
   PROJECTION_DISCLAIMER,
   projectionInputsLine,
@@ -208,7 +209,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                   className={cx("-mx-3 flex items-start gap-3 border-b border-line px-3 py-3 last:border-b-0", mine && "bg-brand-soft")}
                 >
                   <div className="flex w-12 shrink-0 flex-col items-center gap-1 pt-0.5">
-                    <span className="font-display text-lg font-bold leading-none tabular-nums" aria-label={`Overall rank ${r.overallRank}`}>
+                    <span className="font-display text-lg font-bold leading-none tabular-nums">
+                      <span className="sr-only">Overall rank </span>
                       {r.overallRank}
                     </span>
                     <RankBadge position={r.position} label={r.positionLabel} rank={r.positionRank} />
@@ -269,8 +271,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
             <ul className="list-disc space-y-1.5 pl-5">
               <li>
                 <strong>Own history.</strong> We score each lawyer&apos;s approved events on their <em>active</em> cases from the last{" "}
-                {lookback} full weeks (preseason weeks count too). Recent weeks count more: a week from 3 weeks earlier counts half
-                as much. Weeks with no events count as 0 points.
+                {lookback} full weeks (preseason weeks count too). Recent weeks count more: a week from {DEFAULT_PROJECTION_OPTIONS.halfLifeWeeks} weeks
+                earlier counts half as much. Weeks with no events count as 0 points.
               </li>
               <li>
                 <strong>Typical rate.</strong> For each case type (civil, criminal, appeal…) we work out the average points per week
@@ -279,7 +281,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
               </li>
               <li>
                 <strong>Mixing the two.</strong> With little history, the projection leans on the typical rate. Each week of history
-                shifts it toward the lawyer&apos;s own numbers: 4 weeks of history is a 50/50 mix.
+                shifts it toward the lawyer&apos;s own numbers: {DEFAULT_PROJECTION_OPTIONS.ownShrinkageWeeks} weeks of history is a
+                50/50 mix.
               </li>
               <li>
                 <strong>Firms</strong> get each event on a case the firm or any of its lawyers is on once, times the firm multiplier

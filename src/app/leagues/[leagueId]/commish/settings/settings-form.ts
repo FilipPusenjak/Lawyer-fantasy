@@ -26,7 +26,7 @@ import {
   type ValuedEventType,
   type WaiverSettings,
 } from "@/lib/settings";
-import { dateToDayNumber, dayNumberToDate, dayOfWeek, localDate, weekEndDate, zonedTimeToUtc } from "@/lib/time";
+import { dateToDayNumber, dayNumberToDate, localDate, mondayOnOrAfter, weekEndDate, zonedTimeToUtc } from "@/lib/time";
 import type { SettingsLocks } from "@/server/services/settings-admin";
 
 export type FormLike = { get(name: string): FormDataEntryValue | null };
@@ -187,18 +187,22 @@ function isIsoDate(s: string): boolean {
 /**
  * Locked fields keep their current values (disabled inputs aren't submitted).
  * Playoff teams: 0 (no playoffs) or 2..playoffLimit.
+ * A season start that isn't a Monday moves to the next Monday (like creating a
+ * league does); `snapped` says so, so the caller can tell the user.
  */
 export function parseScheduleForm(
   form: FormLike,
   opts: { locks: SettingsLocks; current: ScheduleSettings; seasonStart: string; playoffLimit: number; maxSeasonWeeks: number },
-): ParseResult<{ seasonStart: string; schedule: ScheduleSettings }> {
+): ParseResult<{ seasonStart: string; schedule: ScheduleSettings; snapped: boolean }> {
   return attempt(() => {
     const { locks, current } = opts;
     let seasonStart = opts.seasonStart;
+    let snapped = false;
     if (!locks.seasonStart) {
-      seasonStart = text(form, "seasonStart");
-      if (!isIsoDate(seasonStart)) throw new FormProblem("Pick the season start date.");
-      if (dayOfWeek(seasonStart) !== 1) throw new FormProblem("The season has to start on a Monday.");
+      const picked = text(form, "seasonStart");
+      if (!isIsoDate(picked)) throw new FormProblem("Pick the season start date.");
+      seasonStart = mondayOnOrAfter(picked);
+      snapped = seasonStart !== picked;
     }
     const lockTime = timeOfDay(form, "lockTime", "Lineup lock time");
     let shape = {
@@ -228,7 +232,7 @@ export function parseScheduleForm(
     if (totalSeasonWeeks(schedule) > opts.maxSeasonWeeks) {
       throw new FormProblem(`That season would be ${totalSeasonWeeks(schedule)} weeks. Keep it to ${opts.maxSeasonWeeks} or fewer.`);
     }
-    return { seasonStart, schedule };
+    return { seasonStart, schedule, snapped };
   });
 }
 

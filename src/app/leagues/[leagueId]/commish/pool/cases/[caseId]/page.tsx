@@ -58,18 +58,23 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
                 <p className="py-2 text-sm text-muted">Nobody yet.</p>
               ) : (
                 list.map((a) => (
-                  <ListRow key={a.id}>
-                    <Badge tone="brand" className="w-12 shrink-0 justify-center">
-                      {POSITION_SHORT[a.position]}
-                    </Badge>
-                    <p className="min-w-0 flex-1 truncate font-semibold">{a.name}</p>
-                    <ActionForm action={removeAppearanceAction.bind(null, leagueId)} className="shrink-0">
-                      <input type="hidden" name="appearanceId" value={a.id} />
-                      <SubmitButton variant="ghost" confirm={`Remove ${a.name} from this case?`}>
+                  // The form wraps the whole row so an error shows full width under it, not squeezed beside the button.
+                  <ActionForm
+                    key={a.id}
+                    action={removeAppearanceAction.bind(null, leagueId)}
+                    className="space-y-2 border-b border-line py-2 last:border-b-0"
+                  >
+                    <input type="hidden" name="appearanceId" value={a.id} />
+                    <div className="flex min-h-11 items-center gap-3">
+                      <Badge tone="brand" className="w-12 shrink-0 justify-center">
+                        {POSITION_SHORT[a.position]}
+                      </Badge>
+                      <p className="min-w-0 flex-1 truncate font-semibold">{a.name}</p>
+                      <SubmitButton variant="ghost" className="shrink-0" confirm={`Remove ${a.name} from this case?`}>
                         Remove
                       </SubmitButton>
-                    </ActionForm>
-                  </ListRow>
+                    </div>
+                  </ActionForm>
                 ))
               )}
             </div>

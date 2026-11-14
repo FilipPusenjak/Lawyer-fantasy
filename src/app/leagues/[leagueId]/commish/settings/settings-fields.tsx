@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Field, Input, Select } from "@/components/ui";
 import { EVENT_LABELS, PRESET_LABELS, presetScoring, SCORING_PRESETS, type ScoringPreset, type ScoringSettings } from "@/lib/settings";
 import { SECONDS_PER_PICK_CHOICES, VALUED_EVENT_TYPES } from "./settings-form";
+import { ValueList, ValueRow } from "./settings-ui";
 
 type Values = Record<string, string>;
 
@@ -28,20 +29,26 @@ export function ScoringFields({ initial, disabled }: { initial: ScoringSettings;
     setValues((s) => ({ ...s, [name]: v }));
     setPreset("custom");
   }
-  const input = (name: string, extra?: { min?: number; max?: number }) => (
-    <Input
-      type="number"
-      step="any"
-      min={extra?.min ?? -100}
-      max={extra?.max ?? 100}
-      name={name}
-      value={values[name] ?? ""}
-      onChange={(e) => edit(name, e.target.value)}
-      disabled={disabled}
-      required
-      className="w-24 text-right"
-    />
-  );
+  const input = (name: string, extra?: { min?: number; max?: number }) => {
+    const min = extra?.min ?? -100;
+    return (
+      <Input
+        type="number"
+        step="any"
+        min={min}
+        max={extra?.max ?? 100}
+        // iOS's decimal keypad has no minus key, so signed values keep the
+        // default number keyboard (which has one).
+        inputMode={min >= 0 ? "decimal" : undefined}
+        name={name}
+        value={values[name] ?? ""}
+        onChange={(e) => edit(name, e.target.value)}
+        disabled={disabled}
+        required
+        className="w-24 shrink-0 text-right"
+      />
+    );
+  };
 
   return (
     <div className="space-y-3">
@@ -54,22 +61,21 @@ export function ScoringFields({ initial, disabled }: { initial: ScoringSettings;
           ))}
         </Select>
       </Field>
-      <div className="rounded-xl border border-line">
+      <ValueList header={["Event", "Points"]}>
         {VALUED_EVENT_TYPES.map((t) => (
-          <label key={t} className="flex min-h-12 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0">
-            <span className="min-w-0 flex-1 text-sm">{EVENT_LABELS[t]}</span>
+          <ValueRow key={t} label={EVENT_LABELS[t]}>
             {input(`value_${t}`)}
-          </label>
+          </ValueRow>
         ))}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Firm multiplier" hint="Firms get this × each event on their cases.">
+      </ValueList>
+      <ValueList>
+        <ValueRow label="Firm multiplier" hint="Firms get this × each event on their cases.">
           {input("firmMultiplier", { min: 0, max: 5 })}
-        </Field>
-        <Field label="Weekly filing cap" hint="Max filing points per lawyer per week.">
+        </ValueRow>
+        <ValueRow label="Weekly filing cap" hint="Max filing points per lawyer per week.">
           {input("filingWeeklyCap", { min: 0, max: 100 })}
-        </Field>
-      </div>
+        </ValueRow>
+      </ValueList>
     </div>
   );
 }

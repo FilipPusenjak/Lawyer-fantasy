@@ -34,7 +34,7 @@ export default async function EditLawyerPage({ params }: PageProps<"/leagues/[le
       <BackLink href={isFirm ? `${base}/firms` : base} label={isFirm ? "Firms" : "Lawyers"} />
       <PageHeader
         title={l.name}
-        subtitle={[POSITION_LABELS[l.position], l.preseasonRank ? `Rank #${l.preseasonRank}` : null].filter(Boolean).join(" · ")}
+        subtitle={[POSITION_LABELS[l.position], l.preseasonRank ? `Draft rank #${l.preseasonRank}` : null].filter(Boolean).join(" · ")}
         action={usage.rosteredIn.length > 0 ? <Badge tone="brand">On a team</Badge> : null}
       />
 

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/db";
 import { Card, EmptyState, LinkButton, Notice, Page, PageHeader } from "@/components/ui";
-import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { plural } from "@/lib/format";
 import { totalSeasonWeeks } from "@/lib/settings";
 import { weekOfDate } from "@/lib/time";
@@ -11,7 +10,7 @@ import { countPending, eventCredits, finalizedWeeks, listPending, loadCreditInde
 import { BackLink } from "../pool/pool-ui";
 import { reviewEventsAction } from "./actions";
 import { EventFacts, EventsTabs } from "./event-ui";
-import { SelectAll } from "./select-all";
+import { ReviewButton, ReviewQueueForm } from "./review-form";
 
 export const metadata: Metadata = { title: "Review queue" };
 
@@ -47,13 +46,7 @@ export default async function ReviewQueuePage({ params, searchParams }: PageProp
           </LinkButton>
         </EmptyState>
       ) : (
-        <ActionForm action={reviewEventsAction.bind(null, leagueId)}>
-          <div className="flex items-center justify-between gap-2">
-            <SelectAll />
-            <SubmitButton name="op" value="approve-selected" variant="secondary">
-              Approve selected
-            </SubmitButton>
-          </div>
+        <ReviewQueueForm action={reviewEventsAction.bind(null, leagueId)} ids={events.map((e) => e.id)}>
           {total > events.length ? (
             <p className="text-sm text-muted">
               Showing the oldest {events.length} of {plural(total, "pending event")}.
@@ -75,19 +68,19 @@ export default async function ReviewQueuePage({ params, searchParams }: PageProp
                 />
               </div>
               <div className="flex gap-2">
-                <SubmitButton name="op" value={`approve:${e.id}`} className="flex-1">
+                <ReviewButton op={`approve:${e.id}`} className="flex-1">
                   Approve
-                </SubmitButton>
-                <SubmitButton name="op" value={`reject:${e.id}`} variant="secondary" className="flex-1" confirm="Reject this event? It won't score.">
+                </ReviewButton>
+                <ReviewButton op={`reject:${e.id}`} variant="secondary" className="flex-1" confirm="Reject this event? It won't score.">
                   Reject
-                </SubmitButton>
+                </ReviewButton>
                 <LinkButton href={`${base}/${e.id}`} variant="ghost" className="shrink-0">
                   Edit
                 </LinkButton>
               </div>
             </Card>
           ))}
-        </ActionForm>
+        </ReviewQueueForm>
       )}
     </Page>
   );

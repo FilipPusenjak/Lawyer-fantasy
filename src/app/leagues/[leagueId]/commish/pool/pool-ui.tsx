@@ -59,7 +59,7 @@ export function LawyerFields({ firms, d = {} }: { firms: { id: string; name: str
             ))}
           </Select>
         </Field>
-        <Field label="Preseason rank" hint="1 = best. Optional.">
+        <Field label="Draft rank" hint="1 = drafted first. Optional.">
           <Input type="number" name="preseasonRank" min={1} max={9999} step={1} inputMode="numeric" defaultValue={d.preseasonRank ?? ""} />
         </Field>
       </div>
@@ -87,7 +87,7 @@ export function FirmFields({ d = {} }: { d?: Omit<LawyerDefaults, "position" | "
         <Input name="name" defaultValue={d.name ?? ""} maxLength={NAME_MAX} autoComplete="off" required />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Preseason rank" hint="1 = best. Optional.">
+        <Field label="Draft rank" hint="1 = drafted first. Optional.">
           <Input type="number" name="preseasonRank" min={1} max={9999} step={1} inputMode="numeric" defaultValue={d.preseasonRank ?? ""} />
         </Field>
         <Field label="Location" hint="Optional">

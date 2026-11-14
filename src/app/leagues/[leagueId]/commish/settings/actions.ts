@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { isUuid } from "@/lib/format";
 import { totalSeasonWeeks } from "@/lib/settings";
-import { formatDateTime } from "@/lib/time";
+import { formatDate, formatDateTime } from "@/lib/time";
 import { ok, runAction, UserError, type ActionResult } from "@/server/action-result";
 import { actionLeagueContext } from "@/server/league-context";
 import {
@@ -67,7 +67,7 @@ export async function saveScheduleAction(leagueId: string, _prev: unknown, formD
   return runAction(async () => {
     await commish(leagueId);
     const admin = await loadAdminLeague(db, leagueId);
-    const input = unwrap(
+    const { snapped, ...input } = unwrap(
       parseScheduleForm(formData, {
         locks: admin.locks,
         current: admin.settings.schedule,
@@ -77,7 +77,12 @@ export async function saveScheduleAction(leagueId: string, _prev: unknown, formD
       }),
     );
     await saveScheduleSettings(db, leagueId, input);
-    return saved(leagueId, "Schedule saved.");
+    return saved(
+      leagueId,
+      snapped
+        ? `Schedule saved. Weeks run Monday to Sunday, so the season starts Monday, ${formatDate(input.seasonStart)}.`
+        : "Schedule saved.",
+    );
   });
 }
 

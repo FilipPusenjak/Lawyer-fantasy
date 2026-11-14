@@ -69,7 +69,7 @@ export function EventFacts({
         {eventLabel(e.type)}
         {e.type === "custom" ? <span className="text-muted"> ({fmtSigned(e.customPoints ?? 0)} pts)</span> : null}
       </p>
-      <p className="text-sm">
+      <p className="break-words text-sm">
         {e.lawyerId ? <span className="font-semibold">{e.lawyerName ?? "Unknown lawyer"}</span> : null}
         {e.lawyerId && e.caseCaption ? <span className="text-muted"> · </span> : null}
         {e.caseCaption && caseHref ? (
@@ -80,7 +80,8 @@ export function EventFacts({
         {!e.lawyerId && e.side && e.caseType ? <span className="font-semibold"> · {sideLabel(e.caseType, e.side)}</span> : null}
       </p>
       {e.caseCourt ? <p className="text-xs text-muted">{[e.caseCourt, e.caseDocket].filter(Boolean).join(" · ")}</p> : null}
-      <p className="text-sm text-muted">{e.summary}</p>
+      {/* Summaries are typed by hand and may hold a pasted link; let it wrap instead of widening the page. */}
+      <p className="break-words text-sm text-muted">{e.summary}</p>
       {e.sourceUrl ? (
         <a href={e.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-semibold text-accent underline">
           {hostOf(e.sourceUrl)} ↗

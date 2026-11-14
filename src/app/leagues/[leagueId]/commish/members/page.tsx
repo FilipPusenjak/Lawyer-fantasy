@@ -111,8 +111,17 @@ function MemberItem({
             <input type="hidden" name="teamId" value={m.teamId} />
             <Field label="Team name" hint={`${TEAM_NAME_MIN}–${TEAM_NAME_MAX} characters`}>
               <div className="flex gap-2">
-                <Input name="name" defaultValue={m.teamName ?? ""} minLength={TEAM_NAME_MIN} maxLength={TEAM_NAME_MAX} required />
-                <SubmitButton variant="secondary">Rename</SubmitButton>
+                <Input
+                  name="name"
+                  defaultValue={m.teamName ?? ""}
+                  minLength={TEAM_NAME_MIN}
+                  maxLength={TEAM_NAME_MAX}
+                  required
+                  className="min-w-0 flex-1"
+                />
+                <SubmitButton variant="secondary" className="shrink-0">
+                  Rename
+                </SubmitButton>
               </div>
             </Field>
           </ActionForm>
@@ -165,8 +174,19 @@ function MemberItem({
             <input type="hidden" name="userId" value={m.userId} />
             <Field label="Set a temporary password" hint="Admin only. Share it in person, never in a group chat. They'll be signed out everywhere.">
               <div className="flex gap-2">
-                <Input type="text" name="password" minLength={PASSWORD_MIN} autoComplete="off" autoCapitalize="off" spellCheck={false} required />
-                <SubmitButton variant="secondary">Set</SubmitButton>
+                <Input
+                  type="text"
+                  name="password"
+                  minLength={PASSWORD_MIN}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  required
+                  className="min-w-0 flex-1"
+                />
+                <SubmitButton variant="secondary" className="shrink-0">
+                  Set
+                </SubmitButton>
               </div>
             </Field>
           </ActionForm>

@@ -41,7 +41,7 @@ function isIsoDate(s: string): boolean {
 function rank(form: FormLike): ParseResult<number | null> {
   const raw = text(form, "preseasonRank");
   if (!raw) return { ok: true, data: null };
-  if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 9999) return { ok: false, error: "Preseason rank should be a whole number like 1, 2, 3 (or blank)." };
+  if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 9999) return { ok: false, error: "Draft rank should be a whole number like 1, 2, 3 (or blank)." };
   return { ok: true, data: Number(raw) };
 }
 

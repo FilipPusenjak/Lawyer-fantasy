@@ -45,8 +45,8 @@ export default async function PoolLawyersPage({ params, searchParams }: PageProp
       </Disclosure>
 
       <form action={base} className="flex gap-2" role="search">
-        <Input name="q" defaultValue={f.q} placeholder="Search name, firm, org" aria-label="Search lawyers" className="min-w-0 flex-1" />
-        <Select name="pos" defaultValue={f.position ?? ""} aria-label="Position" className="w-28 shrink-0">
+        <Input name="q" defaultValue={f.q} placeholder="Name, firm, org" aria-label="Search lawyers" className="min-w-0 flex-1" />
+        <Select name="pos" defaultValue={f.position ?? ""} aria-label="Position" className="w-24 shrink-0">
           <option value="">All</option>
           {INDIVIDUAL_POSITIONS.map((p) => (
             <option key={p} value={p}>

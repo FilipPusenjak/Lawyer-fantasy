@@ -136,12 +136,24 @@ describe("parseScheduleForm", () => {
       data: {
         seasonStart: "2027-01-04",
         schedule: { timezone: "America/Chicago", lockTime: "07:30", matchupWeeks: 1, regularSeasonMatchups: 12, playoffTeams: 6, playoffRoundWeeks: 1 },
+        snapped: false,
       },
     });
   });
 
-  it("requires a Monday, a real time zone, and a sane playoff count", () => {
-    expect(parseScheduleForm(form({ ...base, seasonStart: "2027-01-05" }), opts)).toMatchObject({ ok: false, error: expect.stringMatching(/Monday/) });
+  it("moves a non-Monday season start to the next Monday, like creating a league does", () => {
+    expect(parseScheduleForm(form({ ...base, seasonStart: "2027-01-05" }), opts)).toMatchObject({
+      ok: true,
+      data: { seasonStart: "2027-01-11", snapped: true },
+    });
+    expect(parseScheduleForm(form({ ...base, seasonStart: "2027-01-10" }), opts)).toMatchObject({
+      ok: true,
+      data: { seasonStart: "2027-01-11", snapped: true },
+    });
+    expect(parseScheduleForm(form({ ...base, seasonStart: "2027-02-30" }), opts)).toMatchObject({ ok: false, error: expect.stringMatching(/season start/) });
+  });
+
+  it("requires a real time zone and a sane playoff count", () => {
     expect(parseScheduleForm(form({ ...base, timezone: "Mars/Olympus" }), opts)).toMatchObject({ ok: false, error: expect.stringMatching(/time zone/) });
     expect(parseScheduleForm(form({ ...base, playoffTeams: 1 }), opts).ok).toBe(false);
     expect(parseScheduleForm(form({ ...base, playoffTeams: 9 }), opts)).toMatchObject({ ok: false, error: expect.stringMatching(/between 2 and 8/) });
@@ -159,7 +171,7 @@ describe("parseScheduleForm", () => {
     const r = parseScheduleForm(form({ lockTime: "08:00", playoffTeams: 2 }), { ...opts, locks });
     expect(r).toEqual({
       ok: true,
-      data: { seasonStart: "2026-12-07", schedule: { ...cur, lockTime: "08:00", playoffTeams: 2 } },
+      data: { seasonStart: "2026-12-07", schedule: { ...cur, lockTime: "08:00", playoffTeams: 2 }, snapped: false },
     });
     const afterPlayoffs = parseScheduleForm(form({ lockTime: "08:00", playoffTeams: 2 }), { ...opts, locks: settingsLocks("playoffs", "complete") });
     expect(afterPlayoffs.ok && afterPlayoffs.data.schedule.playoffTeams).toBe(cur.playoffTeams);

@@ -19,6 +19,7 @@ import {
 } from "./actions";
 import { isoToLocalInput, ROSTER_FIELDS, seasonSummary, timezoneOptions, WEEKDAYS } from "./settings-form";
 import { DraftClockFields, ScoringFields } from "./settings-fields";
+import { VALUE_INPUT_CLASS, ValueList, ValueRow } from "./settings-ui";
 
 export const metadata: Metadata = { title: "League settings" };
 
@@ -83,9 +84,9 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
       {/* Roster */}
       <Section id="roster" title="Roster spots" locked={locks.roster ? draftLockedMsg : null}>
         <ActionForm action={saveRosterAction.bind(null, leagueId)}>
-          <div className="grid grid-cols-2 gap-3">
+          <ValueList header={["Spot", "Per team"]}>
             {ROSTER_FIELDS.map((f) => (
-              <Field key={f.key} label={f.label}>
+              <ValueRow key={f.key} label={f.label}>
                 <Input
                   type="number"
                   name={`roster_${f.key}`}
@@ -96,10 +97,13 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                   defaultValue={settings.roster[f.key]}
                   disabled={locks.roster}
                   required
+                  className={VALUE_INPUT_CLASS}
                 />
-              </Field>
+              </ValueRow>
             ))}
-            <Field label="Max teams" hint={teamCount > 0 ? `${teamCount} joined so far` : undefined}>
+          </ValueList>
+          <ValueList>
+            <ValueRow label="Max teams" hint={teamCount > 0 ? `2 to 12. ${teamCount} joined so far.` : "2 to 12"}>
               <Input
                 type="number"
                 name="maxTeams"
@@ -110,9 +114,10 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 defaultValue={settings.maxTeams}
                 disabled={locks.roster}
                 required
+                className={VALUE_INPUT_CLASS}
               />
-            </Field>
-          </div>
+            </ValueRow>
+          </ValueList>
           <p className="text-sm text-muted">
             {starterSlots(settings.roster).length} starters + {settings.roster.bench} bench = {rosterSize(settings.roster)} per team, so the draft
             has {rosterSize(settings.roster)} rounds.
@@ -140,8 +145,9 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
             </Notice>
           ) : null}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Season starts" hint={locks.seasonStart ? "Locked" : "Must be a Monday"}>
-              <Input type="date" name="seasonStart" defaultValue={ctx.league.seasonStart} disabled={locks.seasonStart} required />
+            <Field label="Season starts" hint={locks.seasonStart ? "Locked" : "Other days move to the next Monday."}>
+              {/* Keyed so the field shows the saved Monday after a save moves the date. */}
+              <Input key={ctx.league.seasonStart} type="date" name="seasonStart" defaultValue={ctx.league.seasonStart} disabled={locks.seasonStart} required />
             </Field>
             <Field label="Lineups lock at" hint="Every Monday, league time">
               <Input type="time" name="lockTime" defaultValue={settings.schedule.lockTime} required />
@@ -156,8 +162,8 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
               ))}
             </Select>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Weeks per matchup" hint={locks.scheduleShape ? "Locked" : "1 to 4"}>
+          <ValueList>
+            <ValueRow label="Weeks per matchup" hint={locks.scheduleShape ? "Locked" : "1 to 4"}>
               <Input
                 type="number"
                 name="matchupWeeks"
@@ -168,9 +174,10 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 defaultValue={settings.schedule.matchupWeeks}
                 disabled={locks.scheduleShape}
                 required
+                className={VALUE_INPUT_CLASS}
               />
-            </Field>
-            <Field label="Regular-season matchups" hint={locks.scheduleShape ? "Locked" : "1 to 30"}>
+            </ValueRow>
+            <ValueRow label="Regular-season matchups" hint={locks.scheduleShape ? "Locked" : "1 to 30"}>
               <Input
                 type="number"
                 name="regularSeasonMatchups"
@@ -181,9 +188,10 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 defaultValue={settings.schedule.regularSeasonMatchups}
                 disabled={locks.scheduleShape}
                 required
+                className={VALUE_INPUT_CLASS}
               />
-            </Field>
-            <Field label="Playoff teams" hint={locks.playoffTeams ? "Locked: playoffs are set" : `0 = no playoffs, or 2 to ${playoffLimit}`}>
+            </ValueRow>
+            <ValueRow label="Playoff teams" hint={locks.playoffTeams ? "Locked: playoffs are set" : `0 = no playoffs, or 2 to ${playoffLimit}`}>
               <Input
                 type="number"
                 name="playoffTeams"
@@ -194,9 +202,10 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 defaultValue={settings.schedule.playoffTeams}
                 disabled={locks.playoffTeams}
                 required
+                className={VALUE_INPUT_CLASS}
               />
-            </Field>
-            <Field label="Weeks per playoff round" hint={locks.scheduleShape ? "Locked" : "1 to 4"}>
+            </ValueRow>
+            <ValueRow label="Weeks per playoff round" hint={locks.scheduleShape ? "Locked" : "1 to 4"}>
               <Input
                 type="number"
                 name="playoffRoundWeeks"
@@ -207,9 +216,10 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 defaultValue={settings.schedule.playoffRoundWeeks}
                 disabled={locks.scheduleShape}
                 required
+                className={VALUE_INPUT_CLASS}
               />
-            </Field>
-          </div>
+            </ValueRow>
+          </ValueList>
           <div className="rounded-xl bg-surface-2 px-3 py-2 text-sm">
             <p>
               <span className="font-semibold">{summary.totalWeeks} weeks:</span> {summary.regularWeeks} regular season
@@ -272,8 +282,8 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
       {/* Trades */}
       <Section id="trades" title="Trades">
         <ActionForm action={saveTradesAction.bind(null, leagueId)}>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Review window (hours)" hint="Time to veto accepted trades. 0 = instant.">
+          <ValueList>
+            <ValueRow label="Review window (hours)" hint="Time to veto accepted trades. 0 = instant.">
               <Input
                 type="number"
                 name="reviewHours"
@@ -283,9 +293,10 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 inputMode="numeric"
                 defaultValue={settings.trades.reviewHours}
                 required
+                className={VALUE_INPUT_CLASS}
               />
-            </Field>
-            <Field label="Trade deadline week" hint={`1 to ${summary.totalWeeks}. Blank = no deadline.`}>
+            </ValueRow>
+            <ValueRow label="Trade deadline week" hint={`1 to ${summary.totalWeeks}. Blank = no deadline.`}>
               <Input
                 type="number"
                 name="deadlineWeek"
@@ -295,9 +306,10 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 inputMode="numeric"
                 defaultValue={settings.trades.deadlineWeek ?? ""}
                 placeholder="None"
+                className={VALUE_INPUT_CLASS}
               />
-            </Field>
-          </div>
+            </ValueRow>
+          </ValueList>
           <SubmitButton className="w-full">Save trades</SubmitButton>
         </ActionForm>
       </Section>

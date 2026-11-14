@@ -227,7 +227,7 @@ function records(text: string, headerWords: string[], errors: CsvError[]): CsvRe
 
 const cell = (r: CsvRecord, i: number) => r.cells[i] ?? "";
 
-const LAWYER_HEADERS = ["name", "lawyer", "lawyer name", "position", "pos", "firm", "law firm", "organization", "org", "rank", "preseason rank"];
+const LAWYER_HEADERS = ["name", "lawyer", "lawyer name", "position", "pos", "firm", "law firm", "organization", "org", "rank", "draft rank", "preseason rank"];
 
 export function parseLawyersCsv(text: string): CsvParse<LawyerImportRow> {
   const errors: CsvError[] = [];
@@ -414,7 +414,7 @@ export const IMPORT_FORMATS: Record<ImportKind, { header: string; example: strin
     help: [
       "position: trial, appellate, prosecutor, defense or firm (also “Trial Lawyer”, “Defense Attorney”, “DA”…).",
       "firm: optional. Firms that aren't in the pool yet are created.",
-      "rank: optional preseason rank (1 = best). Names already in the pool are skipped.",
+      "rank: optional draft rank (1 = drafted first). Names already in the pool are skipped.",
     ],
   },
   cases: {

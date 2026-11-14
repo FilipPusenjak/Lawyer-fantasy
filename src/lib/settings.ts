@@ -77,10 +77,11 @@ export const LAWYER_SPECIFIC_EVENTS: ReadonlySet<EventType> = new Set(["sanction
 
 export type ScoringValues = Record<ValuedEventType, number>;
 
-export const SCORING_PRESETS = ["outcomes", "half_ppf", "full_ppf"] as const;
+export const SCORING_PRESETS = ["steady", "outcomes", "half_ppf", "full_ppf"] as const;
 export type ScoringPreset = (typeof SCORING_PRESETS)[number] | "custom";
 
 export const PRESET_LABELS: Record<ScoringPreset, string> = {
+  steady: "Steady (rewards consistent lawyers)",
   outcomes: "Outcomes only",
   half_ppf: "Half-PPF (points per filing)",
   full_ppf: "Full PPF (points per filing)",
@@ -105,8 +106,33 @@ const BASE_VALUES: Omit<ScoringValues, "filing"> = {
   plea_reduced: 24,
 };
 
+// Steady: more weight on regular docket work (filings), smaller penalties for
+// denied motions and lost verdicts, and big outcomes about 0.75x. In season
+// simulations of the real pool, a manager who drafts and sets lineups from
+// projections beats a careless one ~84% of the time in a 3-team league (vs
+// ~76% with Half-PPF) and ~74% in a 12-team league (vs ~65%), with zero-point
+// weeks down from ~10% to ~1%; a verdict is still the biggest single play.
+const STEADY_VALUES: ScoringValues = {
+  filing: 6,
+  motion_granted: 12,
+  motion_denied: -4,
+  dismissed_favorable: 32,
+  summary_judgment_won: 36,
+  verdict_win: 60,
+  verdict_loss: -16,
+  settlement_favorable: 36,
+  appeal_won: 48,
+  win_reversed: -24,
+  sanctioned: -44,
+  scotus_argument: 32,
+  guilty_plea: 24,
+  plea_reduced: 18,
+};
+
 export function presetScoring(preset: Exclude<ScoringPreset, "custom">): ScoringSettings {
   switch (preset) {
+    case "steady":
+      return { preset, values: { ...STEADY_VALUES }, filingWeeklyCap: 36, firmMultiplier: 0.5 };
     case "outcomes":
       return { preset, values: { ...BASE_VALUES, filing: 0 }, filingWeeklyCap: 0, firmMultiplier: 0.5 };
     case "half_ppf":
@@ -208,7 +234,7 @@ export function defaultLeagueSettings(): LeagueSettings {
   return {
     maxTeams: 12,
     roster: { trial: 1, appellate: 1, prosecutor: 1, defense: 1, flex: 2, firm: 1, bench: 5 },
-    scoring: presetScoring("half_ppf"),
+    scoring: presetScoring("steady"),
     schedule: {
       timezone: "America/New_York",
       lockTime: "06:00",

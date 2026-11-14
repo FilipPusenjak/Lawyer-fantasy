@@ -31,7 +31,7 @@ export default async function NewTradePage({ params, searchParams }: PageProps<"
   const subtitle = tradeDeadlineText({ ...windowArgs, seasonStart: league.seasonStart });
   const back = (
     <LinkButton href={`${base}/trades`} variant="secondary">
-      Trades
+      All trades
     </LinkButton>
   );
 

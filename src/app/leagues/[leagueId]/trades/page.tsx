@@ -76,7 +76,7 @@ export default async function TradesPage({ params, searchParams }: PageProps<"/l
           myOffers.map(card)
         ) : (
           <EmptyState title="You haven't sent any offers.">
-            {canPropose ? "Tap New offer to build one, or open another team's roster." : null}
+            {canPropose ? "Tap New offer to build one." : null}
           </EmptyState>
         )}
       </Section>

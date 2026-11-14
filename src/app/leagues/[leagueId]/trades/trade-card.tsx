@@ -25,9 +25,10 @@ export function TradeCard({ trade, leagueId, viewer, points, timeZone, stale, de
   const title = (
     <>
       <span className="break-words">{trade.proposerName}</span>
-      <span className="mx-1.5 text-muted" aria-label="and">
+      <span className="mx-1.5 text-muted" aria-hidden>
         ⇄
       </span>
+      <span className="sr-only"> and </span>
       <span className="break-words">{trade.recipientName}</span>
     </>
   );
@@ -70,8 +71,7 @@ export function TradeCard({ trade, leagueId, viewer, points, timeZone, stale, de
 
       {stale && stale.length > 0 ? (
         <Notice tone="warn">
-          {stale.join(", ")} {stale.length === 1 ? "has" : "have"} changed teams since this offer was made, so it
-          probably can&apos;t go through.
+          {stale.join(", ")} moved to a different roster since this offer was made, so it probably can&apos;t go through.
         </Notice>
       ) : null}
 

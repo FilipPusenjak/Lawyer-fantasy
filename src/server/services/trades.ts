@@ -236,11 +236,6 @@ async function lawyerOwners(db: DbOrTx, leagueId: string, lawyerIds: string[]): 
   return new Map(rows.map((r) => [r.lawyerId, r.teamId]));
 }
 
-/**
- * Re-check a stored trade against the current rosters. `permanent` problems
- * can never be fixed (a lawyer moved, the season ended); `fixable` ones can
- * (a roster is too full right now).
- */
 type StoredTradeCheck = {
   /** Can never be fixed: mark the trade failed. */
   permanent: string | null;
@@ -249,6 +244,11 @@ type StoredTradeCheck = {
   overflowSide: "proposer" | "recipient" | null;
 };
 
+/**
+ * Re-check a stored trade against the current rosters. `permanent` problems
+ * can never be fixed (a lawyer moved, the season ended); `fixable` ones can
+ * (a roster is too full right now).
+ */
 async function checkStoredTrade(db: DbOrTx, league: TradeLeague, trade: Trade, items: ItemRow[]): Promise<StoredTradeCheck> {
   const permanent = (msg: string | null): StoredTradeCheck => ({ permanent: msg, fixable: null, overflowSide: null });
   if (league.status !== "in_season" && league.status !== "playoffs") {

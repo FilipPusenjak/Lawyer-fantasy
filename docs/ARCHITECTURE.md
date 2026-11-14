@@ -120,8 +120,11 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
   event would have shown (a sentencing leaves no event); a terminal event stops
   the case's activity. `resolveMilestones` ties each approved event after the
   research date to the one milestone that could have produced it (same type and
-  side or lawyer; routine rulings only inside the window) and never ends a case
-  on an ambiguous match. On researched cases, own history counts only recurring
+  side or lawyer; routine rulings only inside the window), preferring a
+  non-terminal explanation, so a co-defendant's plea doesn't end the case. Events
+  that resolved a milestone stay out of own-history rates, and a case that ends
+  before a later terminal stage (a plea before trial) drops that stage's
+  follow-on milestones. On researched cases, own history counts only recurring
   activity (filings, rulings), so a one-off verdict isn't projected weekly. The
   weekly range mixes the target week's scheduled outcomes into the base range.
   Cases without an outlook use typical rates per case type.

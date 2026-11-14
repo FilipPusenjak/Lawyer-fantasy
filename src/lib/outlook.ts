@@ -147,8 +147,12 @@ export function activityRates(
  */
 export function observableShare(m: Milestone): number {
   let q = 0;
-  for (const o of m.outcomes) if (o.events.some((e) => e.type !== "verdict_loss")) q += o.probability;
-  return Math.min(1, q);
+  let total = 0;
+  for (const o of m.outcomes) {
+    total += o.probability;
+    if (o.events.some((e) => e.type !== "verdict_loss")) q += o.probability;
+  }
+  return total > 0 ? Math.min(1, q / total) : 0;
 }
 
 /**
@@ -191,7 +195,7 @@ export function milestoneWeekProbabilities(m: Milestone, seasonStart: string, fi
 }
 
 /** An approved event on the case, as milestone resolution needs it. */
-export type ResolvingEvent = { type: string; occurredOn: string; side: Side | null; lawyerId: string | null };
+export type ResolvingEvent = { id?: string; type: string; occurredOn: string; side: Side | null; lawyerId: string | null };
 
 /** Rulings that docket activity also produces: they only resolve a milestone inside its window. */
 const ROUTINE_RULINGS: ReadonlySet<string> = new Set(["motion_granted", "motion_denied"]);
@@ -208,30 +212,32 @@ function couldProduce(m: Milestone, e: ResolvingEvent): boolean {
 }
 
 /**
- * Which milestones approved events have already resolved, and whether (and
- * when) the case has ended. Only events dated on/after the research date count,
- * in date order. An event can resolve a milestone that could have produced it
- * (couldProduce); a routine ruling (motion_granted/denied) only inside the
- * milestone's window, where a window starting on or before the season start
- * counts from the research date. Each event resolves at most one milestone:
- * one whose window contains its date, then a non-terminal one, then the
- * likeliest (probability per window day), then list order. Events on the same
- * day that a milestone resolved that day could have produced are absorbed by it
- * (one order denying two motions). A resolved terminal milestone ends the case
- * only when no other milestone could have produced the event, so an ambiguous
- * match (e.g. a co-defendant's plea) never zeroes a case.
+ * Which milestones approved events have already resolved, whether (and when)
+ * the case has ended, and which events were used up doing it. Only events dated
+ * on/after the research date count, in date order. An event can resolve a
+ * milestone that could have produced it (couldProduce); a routine ruling
+ * (motion_granted/denied) only inside the milestone's window, where a window
+ * starting on or before the season start counts from the research date. Each
+ * event resolves at most one milestone: a non-terminal one first (so an
+ * ambiguous match, e.g. a co-defendant's plea, never ends a case while a
+ * non-terminal explanation is open), then one whose window contains its date,
+ * then the likeliest (probability per window day), then list order. When every
+ * open milestone that could explain the event is terminal, the case has ended
+ * whichever one it was. Events on the same day that a milestone resolved that
+ * day could have produced are absorbed by it (one order denying two motions).
  */
 export function resolveMilestones(
   outlook: CaseOutlook,
   caseEvents: readonly ResolvingEvent[],
   seasonStart: string,
-): { resolved: Set<number>; ended: boolean; endedOn: string | null } {
+): { resolved: Set<number>; ended: boolean; endedOn: string | null; consumed: Set<string> } {
   const ms = outlook.milestones;
   const from = (m: Milestone) => (m.windowStart <= seasonStart ? outlook.asOf : m.windowStart);
   const inWindow = (m: Milestone, d: string) => d >= from(m) && d <= m.windowEnd;
   const density = (m: Milestone) => m.probability / (dateToDayNumber(m.windowEnd) - dateToDayNumber(m.windowStart) + 1);
   const resolved = new Set<number>();
   const resolvedOn = new Map<number, string>();
+  const consumed = new Set<string>();
   let endedOn: string | null = null;
   const end = (d: string) => {
     if (endedOn === null || d < endedOn) endedOn = d;
@@ -243,12 +249,12 @@ export function resolveMilestones(
       .filter((i) => couldProduce(ms[i], e) && (!ROUTINE_RULINGS.has(e.type) || inWindow(ms[i], e.occurredOn)));
     const sameDay = all.find((i) => resolvedOn.get(i) === e.occurredOn);
     if (sameDay !== undefined) {
-      if (ms[sameDay].terminal && all.length === 1) end(e.occurredOn);
+      if (e.id) consumed.add(e.id);
       continue; // absorbed by the milestone it resolved today
     }
     const open = all.filter((i) => !resolved.has(i));
     if (open.length === 0) continue;
-    const rank = (i: number) => [inWindow(ms[i], e.occurredOn) ? 0 : 1, ms[i].terminal ? 1 : 0, -density(ms[i]), i];
+    const rank = (i: number) => [ms[i].terminal ? 1 : 0, inWindow(ms[i], e.occurredOn) ? 0 : 1, -density(ms[i]), i];
     open.sort((a, b) => {
       const ra = rank(a);
       const rb = rank(b);
@@ -258,9 +264,11 @@ export function resolveMilestones(
     const i = open[0];
     resolved.add(i);
     resolvedOn.set(i, e.occurredOn);
-    if (ms[i].terminal && all.length === 1) end(e.occurredOn);
+    if (e.id) consumed.add(e.id);
+    // Non-terminal milestones rank first, so a terminal pick means every open explanation is terminal.
+    if (ms[i].terminal) end(e.occurredOn);
   }
-  return { resolved, ended: endedOn !== null, endedOn };
+  return { resolved, ended: endedOn !== null, endedOn, consumed };
 }
 
 // ---------------------------------------------------------------------------

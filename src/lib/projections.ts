@@ -55,8 +55,8 @@
  *    approved event would have shown (a sentencing leaves no event, so its
  *    passed window means "probably happened", not "didn't happen"). Approved
  *    events after the research date resolve the milestone that could have
- *    produced them (resolveMilestones); a resolved terminal milestone ends the
- *    case unless the match was ambiguous.
+ *    produced them (resolveMilestones), preferring a non-terminal explanation;
+ *    a resolved terminal milestone ends the case.
  *
  * No subjective labels anywhere: outputs are numbers and the factual inputs
  * behind them.
@@ -595,9 +595,12 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     else eventsByCase.set(e.caseId, [e]);
   }
   const outlookState = new Map<string, CaseOutlookState>();
+  /** Approved events that resolved a milestone: one-off outcomes, kept out of own-history rates. */
+  const milestoneEvents = new Set<string>();
   for (const c of input.cases) {
     if (c.status !== "active" || !c.outlook) continue;
-    const { resolved, ended, endedOn } = resolveMilestones(c.outlook, eventsByCase.get(c.id) ?? [], seasonStart);
+    const { resolved, ended, endedOn, consumed } = resolveMilestones(c.outlook, eventsByCase.get(c.id) ?? [], seasonStart);
+    for (const id of consumed) milestoneEvents.add(id);
     const live: LiveMilestone[] = [];
     const liveByIndex = new Map<number, LiveMilestone>();
     c.outlook.milestones.forEach((m, i) => {
@@ -628,8 +631,15 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
         cum += lm?.probs.get(w) ?? 0;
       }
     }
-    // Once the case has ended, only milestones that come after the ending event (e.g. post-trial motions) remain.
-    const remaining = ended ? live.filter((x) => !x.m.terminal && endedOn !== null && x.m.windowStart > endedOn) : live;
+    // Once the case has ended, only milestones that come after the ending event (e.g. post-trial motions)
+    // remain, and only if it ended at its last stage: if a terminal stage it skipped was still ahead (a plea
+    // before a scheduled trial), milestones that follow that stage can't happen either.
+    const skippedLaterStage = live.some((x) => x.m.terminal && endedOn !== null && x.m.windowStart > endedOn);
+    const remaining = ended
+      ? skippedLaterStage
+        ? []
+        : live.filter((x) => !x.m.terminal && endedOn !== null && x.m.windowStart > endedOn)
+      : live;
     outlookState.set(c.id, {
       outlook: c.outlook,
       ended,
@@ -697,13 +707,14 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
   // --- Own history (active cases only) and the blend -------------------------
   // On researched cases only recurring docket activity counts: their prior (activityRates) covers just
   // filings and rulings, and milestones carry the one-off outcomes (which leave `scheduled` once an
-  // approved event resolves them), so a verdict or argument must not come back as a weekly rate.
+  // approved event resolves them), so a verdict, an argument or a ruling that resolved a milestone
+  // must not come back as a weekly rate.
   // Cases without an outlook keep every event, since their pool prior averages the one-offs too.
   const RECURRING: ReadonlySet<string> = new Set(["filing", "motion_granted", "motion_denied"]);
   const activeEvents = events.filter((e) => {
     const c = e.caseId ? caseById.get(e.caseId)! : null;
     if (c && c.status !== "active") return false;
-    return !(c && outlookState.has(c.id)) || RECURRING.has(e.type);
+    return !(c && outlookState.has(c.id)) || (RECURRING.has(e.type) && !milestoneEvents.has(e.id));
   });
   const ownPoints = pointsFor(activeEvents);
   const decay = (w: number) => Math.pow(0.5, (H - w) / opts.halfLifeWeeks);

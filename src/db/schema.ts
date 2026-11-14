@@ -138,9 +138,15 @@ export const cases = pgTable(
     sourceUrl: text("source_url"),
     /** Phase 2: CourtListener docket ID. */
     courtlistenerDocketId: integer("courtlistener_docket_id"),
+    /** Phase 2: when court data (CourtListener or the Supreme Court feed) was last pulled for this case. */
+    syncedAt: timestamp("synced_at", { withTimezone: true }),
+    /** Phase 2: high-water mark for incremental pulls (e.g. CourtListener date_modified ISO, or SCOTUS proceeding count). */
+    syncCursor: text("sync_cursor"),
+    /** Phase 2: last sync error message (null when the last sync succeeded). */
+    syncError: text("sync_error"),
     createdAt: createdAt(),
   },
-  (t) => [index("cases_pool_idx").on(t.poolId)],
+  (t) => [index("cases_pool_idx").on(t.poolId), index("cases_synced_idx").on(t.syncedAt)],
 );
 
 /** Which lawyers (or firms) appear on which side of which case. */

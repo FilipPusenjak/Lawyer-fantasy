@@ -6,6 +6,8 @@ import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { POSITION_LABELS, POSITION_SHORT } from "@/lib/settings";
 import { canManagePool, getCommissionerContext } from "@/server/league-context";
 import { listPoolFirms, listPoolLawyers, poolCounts } from "@/server/services/pool";
+import { poolCourtStats } from "../court/court-data";
+import { PoolCourtCard } from "../court/court-ui";
 import { createLawyerAction } from "./actions";
 import { BackLink, Disclosure, LawyerFields, PoolTabs } from "./pool-ui";
 import { INDIVIDUAL_POSITIONS, listFilters } from "./pool-rules";
@@ -20,10 +22,11 @@ export default async function PoolLawyersPage({ params, searchParams }: PageProp
   if (!(await canManagePool(ctx.user, ctx.league.poolId))) notFound();
   const f = listFilters(await searchParams);
   const poolId = ctx.league.poolId;
-  const [rows, firms, counts] = await Promise.all([
+  const [rows, firms, counts, courtStats] = await Promise.all([
     listPoolLawyers(db, poolId, { kind: "lawyer", q: f.q, position: f.position, limit: LIST_LIMIT }),
     listPoolFirms(db, poolId),
     poolCounts(db, poolId),
+    poolCourtStats(db, poolId),
   ]);
   const base = `/leagues/${leagueId}/commish/pool`;
   const filtered = !!(f.q || f.position);
@@ -88,6 +91,8 @@ export default async function PoolLawyersPage({ params, searchParams }: PageProp
           </div>
         )}
       </Card>
+
+      <PoolCourtCard leagueId={leagueId} stats={courtStats} />
     </Page>
   );
 }

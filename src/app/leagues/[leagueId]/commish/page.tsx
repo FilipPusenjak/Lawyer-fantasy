@@ -6,11 +6,14 @@ import { db } from "@/db";
 import { leagueMembers } from "@/db/schema";
 import { Badge, Card, CardTitle, ListRow, Notice, Page, PageHeader } from "@/components/ui";
 import { plural } from "@/lib/format";
+import { formatDateTime } from "@/lib/time";
+import { courtListenerConfigured } from "@/server/court/courtlistener";
 import { getCommissionerContext } from "@/server/league-context";
 import { countPending } from "@/server/services/events";
 import { poolCounts } from "@/server/services/pool";
 import { getWeekStatuses } from "@/server/services/results";
 import { LEAGUE_STATUS_LABELS } from "@/app/leagues/new/league-rules";
+import { poolCourtStats } from "./court/court-data";
 
 export const metadata: Metadata = { title: "Commissioner" };
 
@@ -41,13 +44,16 @@ export default async function CommissionerHubPage({ params }: PageProps<"/league
   const poolId = ctx.league.poolId;
   const base = `/leagues/${leagueId}`;
 
-  const [pending, counts, [members], weeks] = await Promise.all([
+  const [pending, counts, [members], weeks, court] = await Promise.all([
     countPending(db, poolId),
     poolCounts(db, poolId),
     db.select({ n: count() }).from(leagueMembers).where(eq(leagueMembers.leagueId, leagueId)),
     getWeekStatuses(db, leagueId),
+    poolCourtStats(db, poolId),
   ]);
   const readyToFinalize = weeks.some((r) => r.canFinalize);
+  const clConnected = courtListenerConfigured();
+  const tz = ctx.settings.schedule.timezone;
 
   return (
     <Page className="space-y-4">
@@ -74,6 +80,34 @@ export default async function CommissionerHubPage({ params }: PageProps<"/league
         />
         <HubRow href={`${base}/commish/events/new`} label="Add scoring event" hint="Record a ruling, verdict or filing from a public record" />
         <HubRow href={`${base}/commish/events/history`} label="Event history" hint="Approved and rejected events" />
+      </Card>
+
+      <Card>
+        <CardTitle>Court data</CardTitle>
+        <HubRow
+          href={`${base}/commish/court`}
+          label="Court data"
+          hint={`Supreme Court: ${court.scotusTracked} tracked automatically · ${
+            court.lastSyncedAt ? `last sync ${formatDateTime(court.lastSyncedAt, tz)}` : "not synced yet"
+          }`}
+          badge={court.errors.length > 0 ? <Badge tone="warn">{plural(court.errors.length, "error")}</Badge> : null}
+        />
+        <HubRow
+          href={`${base}/commish/pool#court-link`}
+          label="Link cases to CourtListener"
+          hint={
+            clConnected
+              ? `Connected · ${court.linked} linked · ${court.unlinked} not linked`
+              : `Not connected · ${court.linked} linked · ${court.unlinked} not linked`
+          }
+          badge={!clConnected ? <Badge>Off</Badge> : court.unlinked > 0 ? <Badge tone="brand">{court.unlinked}</Badge> : null}
+        />
+        {court.errors.length > 0 ? (
+          <p className="pt-2 text-xs text-muted">
+            Sync errors: {court.errors.slice(0, 3).map((e) => e.caption).join(", ")}
+            {court.errors.length > 3 ? ` and ${court.errors.length - 3} more` : ""}
+          </p>
+        ) : null}
       </Card>
 
       <Card>

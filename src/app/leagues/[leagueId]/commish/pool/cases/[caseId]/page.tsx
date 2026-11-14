@@ -10,6 +10,7 @@ import { canManagePool, getCommissionerContext } from "@/server/league-context";
 import { listEvents } from "@/server/services/events";
 import { approvedEventCount, getPoolCase, listCaseAppearances, listLawyerOptions } from "@/server/services/pool";
 import { eventLabel, STATUS_LABELS } from "../../../events/event-rules";
+import { CaseCourtCard } from "../../../court/court-ui";
 import { addAppearanceAction, deleteCaseAction, removeAppearanceAction, updateCaseAction } from "../../actions";
 import { BackLink, CaseFields, Disclosure } from "../../pool-ui";
 
@@ -152,6 +153,8 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
           ))
         )}
       </Card>
+
+      <CaseCourtCard leagueId={leagueId} c={c} timeZone={ctx.settings.schedule.timezone} />
 
       <Disclosure summary="Edit case details">
         <ActionForm action={updateCaseAction.bind(null, leagueId, caseId)}>

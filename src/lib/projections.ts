@@ -46,6 +46,15 @@
  * No subjective labels anywhere: outputs are numbers and the factual inputs
  * behind them.
  */
+import {
+  activityRates,
+  milestoneResolved,
+  milestoneValue,
+  milestoneWeekProbabilities,
+  type CaseOutlook,
+  type CreditTarget,
+  type Milestone,
+} from "./outlook";
 import { computeLawyerPoints, round2, type AppearanceInput, type LawyerPoints, type ScoringEventInput } from "./scoring";
 import {
   CASE_TYPES,
@@ -161,6 +170,8 @@ export type ProjectionCase = {
   status: "active" | "closed";
   /** YYYY-MM-DD or null if unknown. */
   filedOn: string | null;
+  /** Researched outlook (docket activity + scheduled events), if any. See src/lib/outlook.ts. */
+  outlook?: CaseOutlook | null;
 };
 
 export type ProjectionInputs = {
@@ -176,6 +187,12 @@ export type ProjectionInputs = {
   priorRate: number;
   /** Share of the projection that comes from their own history (0–1). */
   ownWeight: number;
+  /** Active cases with a researched outlook (docket activity + schedule). */
+  researchedCases: number;
+  /** Scheduled or likely events (arguments, trials, decisions…) that could score for them this season. */
+  scheduledEvents: number;
+  /** Expected points from those events over the rest of the season (included in the projection). */
+  scheduledPoints: number;
 };
 
 export type LawyerProjection = {
@@ -201,6 +218,8 @@ export type ProjectionInput = {
   historyThroughWeek: number;
   /** Weeks left to score, counting the projected week (0 once the season is over). */
   remainingWeeks: number;
+  /** The week being projected (default: the week after the history window). */
+  targetWeek?: number;
   options?: Partial<ProjectionOptions>;
 };
 
@@ -479,6 +498,102 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     return r;
   };
 
+  // --- Outlooks: scheduled events and when each case is expected to end -------
+  const target = input.targetWeek ?? H + 1;
+  // Weeks to project: the target week through the last week (at least the target week itself).
+  const lastWeek = target + Math.max(remainingWeeks, 1) - 1;
+  const seasonWeeks: number[] = [];
+  for (let w = target; w <= lastWeek; w++) seasonWeeks.push(w);
+  const inSeason = (w: number) => remainingWeeks > 0 && w <= target + remainingWeeks - 1;
+
+  type LiveMilestone = { caseId: string; m: Milestone; probs: Map<number, number> };
+  type CaseOutlookState = { outlook: CaseOutlook; ended: boolean; milestones: LiveMilestone[]; survival: Map<number, number> };
+  const eventsByCase = new Map<string, ScoringEventInput[]>();
+  for (const e of events) {
+    if (!e.caseId) continue;
+    const arr = eventsByCase.get(e.caseId);
+    if (arr) arr.push(e);
+    else eventsByCase.set(e.caseId, [e]);
+  }
+  const outlookState = new Map<string, CaseOutlookState>();
+  for (const c of input.cases) {
+    if (c.status !== "active" || !c.outlook) continue;
+    const caseEvents = eventsByCase.get(c.id) ?? [];
+    let ended = false;
+    const live: LiveMilestone[] = [];
+    for (const m of c.outlook.milestones) {
+      if (milestoneResolved(m, c.outlook.asOf, caseEvents)) {
+        if (m.terminal) ended = true;
+        continue;
+      }
+      live.push({ caseId: c.id, m, probs: milestoneWeekProbabilities(m, seasonStart, target, lastWeek) });
+    }
+    // Survival: chance the case is still open at the start of each week (terminal milestones end it).
+    const survival = new Map<number, number>();
+    const done = live.filter((x) => x.m.terminal).map(() => 0);
+    const terminals = live.filter((x) => x.m.terminal);
+    for (const w of seasonWeeks) {
+      let s = ended ? 0 : 1;
+      terminals.forEach((t, i) => (s *= 1 - Math.min(1, done[i])));
+      survival.set(w, s);
+      terminals.forEach((t, i) => (done[i] += t.probs.get(w) ?? 0));
+    }
+    outlookState.set(c.id, { outlook: c.outlook, ended, milestones: ended ? [] : live, survival });
+  }
+
+  /** Milestones that can credit each lawyer/firm, with the value to them if they happen. */
+  const sidesOn = new Map<string, Map<string, Set<Side>>>(); // lawyerId -> caseId -> sides (firms include members)
+  for (const l of input.lawyers) {
+    const byCase = new Map<string, Set<Side>>();
+    const sources = l.kind === "firm" ? [l.id, ...(membersByFirm.get(l.id) ?? [])] : [l.id];
+    for (const src of sources) {
+      for (const a of appsByLawyer.get(src) ?? []) {
+        const set = byCase.get(a.caseId) ?? new Set<Side>();
+        set.add(a.side);
+        byCase.set(a.caseId, set);
+      }
+    }
+    sidesOn.set(l.id, byCase);
+  }
+  const firmOf = (id: string): string | null => {
+    const fid = lawyerById.get(id)?.firmId;
+    return fid && lawyerById.get(fid)?.kind === "firm" ? fid : null;
+  };
+  // Lawyer-specific milestone events (e.g. a Supreme Court argument) reach that lawyer and their firm.
+  const lawyerSpecific = new Map<string, Set<string>>(); // lawyerId or firmId -> caseIds
+  for (const st of outlookState.values()) {
+    for (const lm of st.milestones) {
+      for (const o of lm.m.outcomes) {
+        for (const e of o.events) {
+          if (!e.lawyerId) continue;
+          for (const id of [e.lawyerId, firmOf(e.lawyerId)]) {
+            if (!id) continue;
+            const set = lawyerSpecific.get(id) ?? new Set<string>();
+            set.add(lm.caseId);
+            lawyerSpecific.set(id, set);
+          }
+        }
+      }
+    }
+  }
+  type ScoredMilestone = { probs: Map<number, number>; points: number; scoreChance: number };
+  const milestonesFor = (l: ProjectionLawyer): ScoredMilestone[] => {
+    const byCase = sidesOn.get(l.id)!;
+    const caseIds = new Set<string>([...byCase.keys(), ...(lawyerSpecific.get(l.id) ?? [])]);
+    const ids = new Set<string>(l.kind === "firm" ? [l.id, ...(membersByFirm.get(l.id) ?? [])] : [l.id]);
+    const out: ScoredMilestone[] = [];
+    for (const caseId of caseIds) {
+      const st = outlookState.get(caseId);
+      if (!st) continue;
+      const t: CreditTarget = { kind: l.kind, ids, sides: byCase.get(caseId) ?? new Set<Side>() };
+      for (const lm of st.milestones) {
+        const v = milestoneValue(lm.m, t, scoring);
+        if (v.points !== 0 || v.scoreChance > 0) out.push({ probs: lm.probs, points: v.points, scoreChance: v.scoreChance });
+      }
+    }
+    return out;
+  };
+
   // --- Own history (active cases only) and the blend -------------------------
   const activeEvents = events.filter((e) => !e.caseId || caseById.get(e.caseId)!.status === "active");
   const ownPoints = pointsFor(activeEvents);
@@ -491,19 +606,34 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     const own = ownPoints.get(l.id);
     const eventsLookback = own ? new Set(own.lines.map((x) => x.eventId)).size : 0;
 
-    // Prior: sum of typical rates over active case sides; filing capped like real scoring.
-    let sumOther = 0;
-    let sumFiling = 0;
-    let sumEvents = 0;
-    for (const u of units) {
+    // Per-unit weekly rates: the case's researched activity when there is one, else the typical rate.
+    const unitRates = units.map((u) => {
+      const st = outlookState.get(u.caseId);
+      if (st) {
+        const r = activityRates(st.outlook, u.side, scoring);
+        const k = l.kind === "firm" ? mult : 1;
+        return { caseId: u.caseId, other: r.other * k, filing: r.filing * k, events: k > 0 ? r.events : 0, survival: st.survival };
+      }
       const r = groupRate(l, u.caseType);
-      sumOther += r.other;
-      sumFiling += r.filing;
-      sumEvents += r.events;
-    }
+      return { caseId: u.caseId, other: r.other, filing: r.filing, events: r.events, survival: null as Map<number, number> | null };
+    });
     const filingCap = scoring.filingWeeklyCap * (l.kind === "firm" ? mult : 1);
-    const priorRate = sumOther + clamp(sumFiling, 0, filingCap);
-    const priorActivity = 1 - Math.exp(-Math.max(0, sumEvents));
+    const priorAt = (w: number) => {
+      let other = 0;
+      let filing = 0;
+      let evs = 0;
+      let open = 0;
+      for (const r of unitRates) {
+        const s = r.survival ? (r.survival.get(w) ?? 0) : 1;
+        other += r.other * s;
+        filing += r.filing * s;
+        evs += r.events * s;
+        open += s;
+      }
+      return { rate: other + clamp(filing, 0, filingCap), events: evs, open: unitRates.length ? open / unitRates.length : 1 };
+    };
+    const priorTarget = priorAt(target);
+    const priorRate = priorTarget.rate;
 
     // Own rate over observed weeks.
     const start = units.reduce((m, u) => Math.min(m, u.start), Infinity);
@@ -525,13 +655,37 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
 
     const kOwn = opts.ownShrinkageWeeks;
     const ownWeight = observedWeeks / (observedWeeks + kOwn);
-    let projected = 0;
-    let activity = 0;
-    if (activeCases > 0) {
-      projected = ownWeight * (ownRate ?? 0) + (1 - ownWeight) * priorRate;
-      activity = ownWeight * ownActivity + (1 - ownWeight) * priorActivity;
+
+    // Weekly expectation: blended base (scaled by the chance its cases are still open) + scheduled events.
+    const scheduled = activeCases > 0 || lawyerSpecific.has(l.id) ? milestonesFor(l) : [];
+    const expectedAt = (w: number): { points: number; scheduledPoints: number; events: number } => {
+      const p = priorAt(w);
+      const base = activeCases > 0 ? ownWeight * (ownRate ?? 0) * p.open + (1 - ownWeight) * p.rate : 0;
+      let sched = 0;
+      let schedEvents = 0;
+      for (const m of scheduled) {
+        const pw = m.probs.get(w) ?? 0;
+        sched += pw * m.points;
+        schedEvents += pw * m.scoreChance;
+      }
+      return { points: base + sched, scheduledPoints: sched, events: (activeCases > 0 ? p.events : 0) + schedEvents };
+    };
+
+    const atTarget = expectedAt(target);
+    const projected = round2(atTarget.points);
+    let rest = 0;
+    let scheduledPoints = 0;
+    if (remainingWeeks > 0) {
+      for (const w of seasonWeeks) {
+        if (!inSeason(w)) continue;
+        const e = w === target ? atTarget : expectedAt(w);
+        rest += round2(e.points);
+        scheduledPoints += e.scheduledPoints;
+      }
     }
-    projected = round2(projected);
+
+    const priorActivity = 1 - Math.exp(-Math.max(0, atTarget.events));
+    const activity = activeCases > 0 || scheduled.length > 0 ? ownWeight * ownActivity + (1 - ownWeight) * priorActivity : 0;
     const spread = MIN_SPREAD + EXTRA_SPREAD * (kOwn / (observedWeeks + kOwn));
     let low = projected - Math.abs(projected) * spread;
     let high = projected + Math.abs(projected) * spread;
@@ -539,6 +693,7 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
       low = Math.min(low, 0);
       high = Math.max(high, 0);
     }
+    const scheduledEvents = remainingWeeks > 0 ? scheduled.filter((m) => [...m.probs.entries()].some(([w, p]) => p > 0 && inSeason(w))).length : 0;
 
     projections.set(l.id, {
       lawyerId: l.id,
@@ -546,7 +701,7 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
       low: round2(low),
       high: round2(high),
       activityRate: round2(clamp(activity, 0, 1)),
-      restOfSeason: round2(projected * remainingWeeks),
+      restOfSeason: round2(rest),
       inputs: {
         activeCases,
         eventsLookback,
@@ -554,6 +709,9 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
         ownRate: ownRate === null ? null : round2(ownRate),
         priorRate: activeCases > 0 ? round2(priorRate) : 0,
         ownWeight: round2(ownWeight),
+        researchedCases: new Set(units.filter((u) => outlookState.has(u.caseId)).map((u) => u.caseId)).size,
+        scheduledEvents,
+        scheduledPoints: round2(scheduledPoints),
       },
     });
   }
@@ -568,12 +726,21 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
 export type RankedProjection = LawyerProjection & {
   name: string;
   position: Position;
-  /** 1 = highest projection in the pool (firms included). */
+  /**
+   * Season rank: 1 = most projected points over the rest of the season (firms
+   * included). This is the order draft ranks use.
+   */
   overallRank: number;
-  /** 1 = highest projection at this position. */
+  /** Season rank at this position (1 = best). */
   positionRank: number;
-  /** e.g. "TRL3", "FIRM1". */
+  /** e.g. "TRL3", "FIRM1" (season rank at the position). */
   positionLabel: string;
+  /** Week rank: 1 = highest projection for the projected week. */
+  weekRank: number;
+  /** Week rank at this position. */
+  weekPositionRank: number;
+  /** e.g. "TRL3" (week rank at the position). */
+  weekPositionLabel: string;
 };
 
 type Rankable = Pick<LawyerProjection, "lawyerId" | "projectedWeek" | "restOfSeason"> & { name: string };
@@ -593,7 +760,11 @@ export function compareProjectionsRestOfSeason(a: Rankable, b: Rankable): number
   return b.restOfSeason - a.restOfSeason || compareProjections(a, b);
 }
 
-/** Overall and position ranks, sorted best first. Lawyers without a projection are skipped. */
+/**
+ * Season ranks (rest of season, then the projected week) and week ranks (the
+ * projected week, then rest of season), overall and per position. Sorted by
+ * season rank, best first. Lawyers without a projection are skipped.
+ */
 export function rankProjections(
   projections: ReadonlyMap<string, LawyerProjection>,
   lawyers: readonly Pick<ProjectionLawyer, "id" | "name" | "position">[],
@@ -602,12 +773,31 @@ export function rankProjections(
     const p = projections.get(l.id);
     return p ? [{ ...p, name: l.name, position: l.position }] : [];
   });
-  rows.sort(compareProjections);
-  const perPosition = new Map<Position, number>();
-  return rows.map((r, i) => {
-    const positionRank = (perPosition.get(r.position) ?? 0) + 1;
-    perPosition.set(r.position, positionRank);
-    return { ...r, overallRank: i + 1, positionRank, positionLabel: `${POSITION_SHORT[r.position]}${positionRank}` };
+  const rankBy = (cmp: typeof compareProjections) => {
+    const sorted = [...rows].sort(cmp);
+    const perPosition = new Map<Position, number>();
+    const out = new Map<string, { overall: number; position: number }>();
+    sorted.forEach((r, i) => {
+      const position = (perPosition.get(r.position) ?? 0) + 1;
+      perPosition.set(r.position, position);
+      out.set(r.lawyerId, { overall: i + 1, position });
+    });
+    return { sorted, out };
+  };
+  const season = rankBy(compareProjectionsRestOfSeason);
+  const week = rankBy(compareProjections).out;
+  return season.sorted.map((r) => {
+    const s = season.out.get(r.lawyerId)!;
+    const w = week.get(r.lawyerId)!;
+    return {
+      ...r,
+      overallRank: s.overall,
+      positionRank: s.position,
+      positionLabel: `${POSITION_SHORT[r.position]}${s.position}`,
+      weekRank: w.overall,
+      weekPositionRank: w.position,
+      weekPositionLabel: `${POSITION_SHORT[r.position]}${w.position}`,
+    };
   });
 }
 
@@ -659,9 +849,16 @@ export function fmtProjection(n: number): string {
   return (Object.is(r, -0) ? 0 : r).toFixed(1).replace(/\.0$/, "");
 }
 
-/** Factual inputs line, e.g. "4 active cases · 6 scoring events in the last 8 weeks". */
+/**
+ * Factual inputs line, e.g. "4 active cases · 6 scoring events in the last 8 weeks · 2 scheduled events".
+ */
 export function projectionInputsLine(p: Pick<LawyerProjection, "inputs">, lookbackWeeks: number): string {
-  return `${plural(p.inputs.activeCases, "active case")} · ${plural(p.inputs.eventsLookback, "scoring event")} in the last ${plural(lookbackWeeks, "week")}`;
+  const parts = [
+    plural(p.inputs.activeCases, "active case"),
+    `${plural(p.inputs.eventsLookback, "scoring event")} in the last ${plural(lookbackWeeks, "week")}`,
+  ];
+  if (p.inputs.scheduledEvents > 0) parts.push(`${plural(p.inputs.scheduledEvents, "scheduled event")} this season`);
+  return parts.join(" · ");
 }
 
 /** Range text, e.g. "0–12.4". */

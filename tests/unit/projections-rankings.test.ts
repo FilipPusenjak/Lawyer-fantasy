@@ -27,7 +27,17 @@ const proj = (lawyerId: string, projectedWeek: number, restOfSeason = projectedW
   high: projectedWeek * 2,
   activityRate: 0.5,
   restOfSeason,
-  inputs: { activeCases: 1, eventsLookback: 0, observedWeeks: 0, ownRate: null, priorRate: projectedWeek, ownWeight: 0 },
+  inputs: {
+    activeCases: 1,
+    eventsLookback: 0,
+    observedWeeks: 0,
+    ownRate: null,
+    priorRate: projectedWeek,
+    ownWeight: 0,
+    researchedCases: 0,
+    scheduledEvents: 0,
+    scheduledPoints: 0,
+  },
 });
 
 const people: { id: string; name: string; position: Position }[] = [

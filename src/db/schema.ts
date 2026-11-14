@@ -144,6 +144,11 @@ export const cases = pgTable(
     syncCursor: text("sync_cursor"),
     /** Phase 2: last sync error message (null when the last sync succeeded). */
     syncError: text("sync_error"),
+    /**
+     * Researched outlook used by projections: docket activity per side and
+     * scheduled/likely scoring events with probabilities (see src/lib/outlook.ts).
+     */
+    outlook: jsonb("outlook"),
     createdAt: createdAt(),
   },
   (t) => [index("cases_pool_idx").on(t.poolId), index("cases_synced_idx").on(t.syncedAt)],

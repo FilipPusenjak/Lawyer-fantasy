@@ -101,6 +101,7 @@ const poolCase = {
   syncedAt: null as Date | null,
   syncCursor: null,
   syncError: null,
+  outlook: null,
   createdAt: new Date(),
 };
 

@@ -19,6 +19,7 @@ import {
   type ProjectionWeeks,
   type RankedProjection,
 } from "@/lib/projections";
+import { parseCaseOutlook } from "@/lib/outlook";
 import { parseLeagueSettings, totalSeasonWeeks, type LeagueSettings } from "@/lib/settings";
 import { UserError } from "@/server/action-result";
 import { isAdminUser } from "@/server/auth/admin";
@@ -83,7 +84,7 @@ export async function getLeagueProjections(db: DbOrTx, leagueId: string, now: Da
   const [poolLawyers, caseRows, appearances, events, spots, holds] = await Promise.all([
     loadPoolLawyers(db, league.poolId),
     db
-      .select({ id: cases.id, caseType: cases.caseType, status: cases.status, filedOn: cases.filedOn })
+      .select({ id: cases.id, caseType: cases.caseType, status: cases.status, filedOn: cases.filedOn, outlook: cases.outlook })
       .from(cases)
       .where(eq(cases.poolId, league.poolId)),
     loadPoolAppearances(db, league.poolId),
@@ -98,13 +99,14 @@ export async function getLeagueProjections(db: DbOrTx, leagueId: string, now: Da
 
   const result = projectPool({
     lawyers: poolLawyers,
-    cases: caseRows,
+    cases: caseRows.map((c) => ({ ...c, outlook: parseCaseOutlook(c.outlook) })),
     appearances,
     events,
     scoring: settings.scoring,
     seasonStart: league.seasonStart,
     historyThroughWeek: weeks.historyThroughWeek,
     remainingWeeks: weeks.remainingWeeks,
+    targetWeek: weeks.targetWeek,
   });
   const ranked = rankProjections(result.projections, poolLawyers);
 
@@ -174,8 +176,8 @@ async function userCanManagePool(db: DbOrTx, userId: string, poolId: string): Pr
 
 /**
  * Set `lawyers.preseason_rank` for every lawyer in the league's pool to their
- * projection overall rank (1 = highest projection). Auto-pick in the draft uses
- * these ranks. The pool may be shared by other leagues, which see the same
+ * season projection rank (1 = most projected points over the rest of the
+ * season). Auto-pick in the draft uses these ranks. The pool may be shared by other leagues, which see the same
  * ranks. The Server Action must also check canManagePool; this re-checks.
  */
 export async function applyProjectionRanks(

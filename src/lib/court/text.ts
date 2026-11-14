@@ -54,7 +54,7 @@ export function removeParenGroups(s: string, drop: (inner: string) => boolean): 
 export function isClericalParen(inner: string): boolean {
   const t = inner.trim();
   return (
-    /^(attachments?|entered|filed on|main document|additional attachment|text of proposed order|court only|refiled|modified on)\b/i.test(t) ||
+    /^(attachments?|entered|filed on|main document|additional attachment|text of proposed order|court only|refiled|modified on|filing fee|fee|receipt number)\b/i.test(t) ||
     /^[a-z]{1,4}\d?,?\s*$/.test(t) ||
     /^[a-z]{1,4}, ?[a-z]{0,4}$/.test(t)
   );

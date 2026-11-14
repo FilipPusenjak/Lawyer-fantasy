@@ -122,7 +122,7 @@ export function planScotus(input: ScotusPlanInput): Plan {
     }
     events.push(...batch);
   }
-  return { events, newEntries: i - start, nextCursor: i === start && !firstSync ? input.cursor : String(i), capped };
+  return { events, newEntries: i - start, nextCursor: String(i), capped };
 }
 
 // ---------------------------------------------------------------------------

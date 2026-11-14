@@ -2,16 +2,24 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { leagues } from "@/db/schema";
+import { runCourtSync, type SyncResult } from "@/server/services/court-sync";
 import { runLeagueMaintenance } from "@/server/services/maintenance";
 
 /**
  * Daily Vercel Cron job (see vercel.json). Vercel sends
  * "Authorization: Bearer <CRON_SECRET>". Runs lazy maintenance (waivers,
  * trade reviews, …) for every active league so they stay current even when
- * nobody opens the app.
+ * nobody opens the app, then pulls court data (Supreme Court feed +
+ * CourtListener) into pending suggestions for the commissioners.
  */
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+/** Vercel Hobby's limit. Court sync paces CourtListener requests (5/min) and stops at COURT_SYNC_BUDGET_MS. */
+export const maxDuration = 300;
+
+/** Court sync must finish this long after the route starts (leaves ~30 s of the 300 s for the response). */
+const COURT_SYNC_BUDGET_MS = 270_000;
+/** CourtListener requests per daily run (free tier: 125/day shared with the commissioner screens). */
+const COURT_SYNC_MAX_CALLS = 20;
 
 const ACTIVE_STATUSES = ["drafting", "in_season", "playoffs"] as const;
 
@@ -55,17 +63,51 @@ export async function GET(request: Request) {
     }
   }
 
+  // Court data. Per-case problems are recorded on the case (cases.syncError) and
+  // listed here; they don't fail the run. Only a crash of the whole sync does.
+  let court: { ok: boolean; cases: number; suggestions: number; skipped: number; errors: number; ms: number; results: SyncResult[]; error?: string };
+  const t0 = Date.now();
+  try {
+    const sync = await runCourtSync(db, new Date(), {
+      maxCourtListenerCalls: COURT_SYNC_MAX_CALLS,
+      deadlineMs: startedAt.getTime() + COURT_SYNC_BUDGET_MS,
+    });
+    court = {
+      ok: true,
+      cases: sync.results.length,
+      suggestions: sync.results.reduce((n, r) => n + r.suggestions, 0),
+      skipped: sync.skipped,
+      errors: sync.results.filter((r) => r.error).length,
+      ms: Date.now() - t0,
+      results: sync.results,
+    };
+  } catch (e) {
+    console.error("[cron/daily] court sync failed", e);
+    court = {
+      ok: false,
+      cases: 0,
+      suggestions: 0,
+      skipped: 0,
+      errors: 0,
+      ms: Date.now() - t0,
+      results: [],
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+
   const failed = results.filter((r) => !r.ok).length;
+  const ok = failed === 0 && court.ok;
   return Response.json(
     {
-      ok: failed === 0,
+      ok,
       startedAt: startedAt.toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
       leagues: results.length,
       succeeded: results.length - failed,
       failed,
       results,
+      court,
     },
-    { status: failed === 0 ? 200 : 500 },
+    { status: ok ? 200 : 500 },
   );
 }

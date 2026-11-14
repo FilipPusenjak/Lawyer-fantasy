@@ -63,7 +63,9 @@ export function chooseAutoPick(args: {
   const { available, queue, draftedPositions, roster } = args;
   if (available.length === 0) return null;
   const availableById = new Map(available.map((c) => [c.id, c]));
-  const open = openStarterSlots(draftedPositions, roster);
+  // Slots nobody left can fill (e.g. every firm is gone) count as filled, so
+  // they don't make us skip the team's queue.
+  const open = openStarterSlots(draftedPositions, roster).filter((s) => available.some((c) => slotAccepts(s, c.position)));
   const fillsOpen = (c: AutoPickCandidate) => open.some((s) => slotAccepts(s, c.position));
 
   for (const id of queue) {

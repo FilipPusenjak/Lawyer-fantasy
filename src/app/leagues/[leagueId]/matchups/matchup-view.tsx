@@ -41,10 +41,12 @@ export type MatchupScores = {
 /**
  * Stored scores once final; otherwise live totals from the scoreboard (median
  * games compare against the median of every team's total for the same weeks).
+ * Without a scoreboard, unsettled matchups show 0–0.
  */
-export function matchupScores(m: Matchup, sb: Scoreboard, allTeamIds: string[]): MatchupScores {
+export function matchupScores(m: Matchup, sb: Scoreboard | null, allTeamIds: string[]): MatchupScores {
   if (m.isBye) return { scoreA: null, scoreB: null };
   if (m.final) return { scoreA: m.scoreA ?? 0, scoreB: m.scoreB ?? 0 };
+  if (!sb) return { scoreA: 0, scoreB: 0 };
   const scoreA = sb.teamRange(m.teamAId, m.weekStart, m.weekEnd);
   const scoreB = m.teamBId
     ? sb.teamRange(m.teamBId, m.weekStart, m.weekEnd)

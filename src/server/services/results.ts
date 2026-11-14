@@ -128,6 +128,12 @@ export function playoffRoundName(round: number, totalRounds: number): string {
   return `Round ${round}`;
 }
 
+/** Round name for use mid-sentence: "round 1", "the semifinals", "the championship". */
+export function playoffRoundRef(round: number, totalRounds: number): string {
+  const name = playoffRoundName(round, totalRounds);
+  return name.startsWith("Round") ? name.toLowerCase() : `the ${name.toLowerCase()}`;
+}
+
 /** Distinct matchup periods that exist for a league, in order. */
 export function listPeriods(all: Pick<Matchup, "period" | "weekStart" | "weekEnd" | "isPlayoff" | "playoffRound">[]): (PeriodInfo & {
   label: string;

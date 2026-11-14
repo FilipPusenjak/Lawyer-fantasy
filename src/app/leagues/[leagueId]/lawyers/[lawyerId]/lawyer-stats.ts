@@ -35,3 +35,14 @@ export function eventRows<L extends PointLineLike, D extends { occurredOn: strin
   }
   return out.sort((a, b) => b.event.occurredOn.localeCompare(a.event.occurredOn) || a.line.eventId.localeCompare(b.line.eventId));
 }
+
+/** Only http(s) links are rendered; anything else is dropped. */
+export function safeHttpUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}

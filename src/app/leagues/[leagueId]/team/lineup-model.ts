@@ -49,3 +49,11 @@ export function benchOf<T extends EditorPlayer>(starters: (string | null)[], pla
 export function sameLineup(a: (string | null)[], b: (string | null)[]): boolean {
   return a.length === b.length && a.every((x, i) => (x ?? null) === (b[i] ?? null));
 }
+
+/** Read ?week= as an integer within [min, max]; null when missing or out of range. */
+export function parseWeekParam(raw: string | string[] | undefined, min: number, max: number): number | null {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (!v || !/^\d{1,3}$/.test(v.trim())) return null;
+  const n = Number(v.trim());
+  return n >= min && n <= max ? n : null;
+}

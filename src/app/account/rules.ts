@@ -107,6 +107,9 @@ export function safeNextPath(raw: unknown, fallback = "/"): string {
     return fallback;
   }
   if (url.origin !== "http://lf.invalid") return fallback;
+  // Dot segments are resolved by URL, so "/.//evil.example" comes out as
+  // "//evil.example": a protocol-relative URL that browsers send off-site.
+  if (url.pathname.startsWith("//")) return fallback;
   if (AUTH_PATHS.has(url.pathname)) return fallback;
   return `${url.pathname}${url.search}${url.hash}`;
 }

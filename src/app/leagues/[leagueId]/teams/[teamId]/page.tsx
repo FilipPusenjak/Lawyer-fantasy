@@ -13,6 +13,7 @@ import { getScoreboard } from "@/server/services/scores";
 import { getStandings } from "@/server/services/standings";
 import { movesOpen } from "@/server/services/transactions-moves";
 import { LawyerLink, PositionBadge } from "../../players/player-bits";
+import { newTradeHref } from "@/app/leagues/[leagueId]/trades/trade-labels";
 import { parseWeekParam } from "../../team/lineup-model";
 import { LineupView, WeekPicker } from "../../team/lineup-view";
 
@@ -42,7 +43,7 @@ export default async function TeamPage({ params, searchParams }: PageProps<"/lea
       My team
     </LinkButton>
   ) : movesOpen(league.status) && ctx.team ? (
-    <LinkButton href={`${base}/trades/new?with=${team.id}`} variant="secondary">
+    <LinkButton href={newTradeHref(leagueId, { withTeamId: team.id })} variant="secondary">
       Propose trade
     </LinkButton>
   ) : null;

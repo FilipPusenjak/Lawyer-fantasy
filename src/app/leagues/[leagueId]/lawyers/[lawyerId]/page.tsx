@@ -24,6 +24,7 @@ import { dropGoesToWaivers, movesOpen } from "@/server/services/transactions-mov
 import { AddClaimButton, DropButton, MoveProvider } from "../../players/move-controls";
 import { AvailabilityBadge, LawyerLink, PositionBadge } from "../../players/player-bits";
 import { formatShortDay } from "../../players/player-filters";
+import { newTradeHref } from "@/app/leagues/[leagueId]/trades/trade-labels";
 import { barPercent, eventRows, safeHttpUrl, weeklyPoints } from "./lawyer-stats";
 
 export const metadata: Metadata = { title: "Lawyer" };
@@ -119,12 +120,22 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <div className="min-w-0 flex-1 text-sm">
               {availability.kind === "rostered" && availability.teamId !== team?.id ? (
-                <>
-                  On{" "}
-                  <Link href={`${base}/teams/${availability.teamId}`} className="font-semibold text-brand">
-                    {availability.teamName}
-                  </Link>
-                </>
+                <span className="flex flex-wrap items-center gap-x-3">
+                  <span>
+                    On{" "}
+                    <Link href={`${base}/teams/${availability.teamId}`} className="font-semibold text-brand">
+                      {availability.teamName}
+                    </Link>
+                  </span>
+                  {canMove ? (
+                    <Link
+                      href={newTradeHref(leagueId, { withTeamId: availability.teamId, get: [lawyer.id] })}
+                      className="inline-flex min-h-11 items-center font-semibold text-accent"
+                    >
+                      Propose trade ›
+                    </Link>
+                  ) : null}
+                </span>
               ) : (
                 <span className="flex flex-wrap items-center gap-1.5">
                   <AvailabilityBadge availability={availability} myTeamId={team?.id ?? null} waiversUntil={waiversUntil} />

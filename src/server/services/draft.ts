@@ -65,8 +65,8 @@ type DraftCtx = {
   teams: DraftTeamInfo[];
 };
 
-async function loadLeagueInfo(db: DbOrTx, leagueId: string): Promise<LeagueInfo> {
-  const [l] = await db
+async function loadLeagueInfo(db: DbOrTx, leagueId: string, opts: { lock?: boolean } = {}): Promise<LeagueInfo> {
+  const q = db
     .select({
       id: leagues.id,
       poolId: leagues.poolId,
@@ -76,6 +76,10 @@ async function loadLeagueInfo(db: DbOrTx, leagueId: string): Promise<LeagueInfo>
     })
     .from(leagues)
     .where(eq(leagues.id, leagueId));
+  // NO KEY UPDATE still lets other transactions insert rows that reference the
+  // league (FK checks take KEY SHARE), but conflicts with joins and settings
+  // edits, which lock the league row FOR UPDATE.
+  const [l] = opts.lock ? await q.for("no key update") : await q;
   if (!l) throw new UserError("League not found.");
   return { ...l, settings: parseLeagueSettings(l.settings) };
 }
@@ -243,24 +247,31 @@ export async function peekDraft(
 // Locking
 // ---------------------------------------------------------------------------
 
-async function lockDraftRow(tx: DbOrTx, leagueId: string, settings: LeagueSettings): Promise<Draft> {
+async function lockDraftRow(tx: DbOrTx, leagueId: string, settings: LeagueSettings | (() => Promise<LeagueSettings>)): Promise<Draft> {
   const [d] = await tx.select().from(drafts).where(eq(drafts.leagueId, leagueId)).for("update");
   if (d) return d;
   // Leagues created outside createLeague may not have a draft row yet.
-  await tx.insert(drafts).values(defaultDraftRow(leagueId, settings)).onConflictDoNothing();
+  const s = typeof settings === "function" ? await settings() : settings;
+  await tx.insert(drafts).values(defaultDraftRow(leagueId, s)).onConflictDoNothing();
   const [created] = await tx.select().from(drafts).where(eq(drafts.leagueId, leagueId)).for("update");
   return created;
 }
 
-/** Run `fn` in a transaction holding the league's draft row lock. */
+/**
+ * Run `fn` in a transaction holding the league's draft row lock, then the
+ * league row lock (same order as the settings service). The league and its
+ * teams are read only after both locks are held, so a settings edit or a join
+ * that committed while we waited is never missed (e.g. a team joining while
+ * the draft starts).
+ */
 async function withLockedDraft<T>(
   db: DbOrTx,
   leagueId: string,
   fn: (tx: DbOrTx, draft: Draft, ctx: DraftCtx) => Promise<T>,
 ): Promise<T> {
   return db.transaction(async (tx) => {
-    const league = await loadLeagueInfo(tx, leagueId);
-    const draft = await lockDraftRow(tx, leagueId, league.settings);
+    const draft = await lockDraftRow(tx, leagueId, async () => (await loadLeagueInfo(tx, leagueId)).settings);
+    const league = await loadLeagueInfo(tx, leagueId, { lock: true });
     const teamRows = await loadDraftTeams(tx, leagueId);
     return fn(tx, draft, { league, teams: teamRows });
   });

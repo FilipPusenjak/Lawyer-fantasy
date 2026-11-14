@@ -225,6 +225,18 @@ export async function listPoolFirms(db: DbOrTx, poolId: string): Promise<{ id: s
     .orderBy(asc(lawyers.name));
 }
 
+/** Every lawyer and firm in the pool (for selects): lawyers first, then firms, by name. */
+export async function listLawyerOptions(
+  db: DbOrTx,
+  poolId: string,
+): Promise<{ id: string; name: string; kind: "lawyer" | "firm"; position: Position }[]> {
+  return db
+    .select({ id: lawyers.id, name: lawyers.name, kind: lawyers.kind, position: lawyers.position })
+    .from(lawyers)
+    .where(eq(lawyers.poolId, poolId))
+    .orderBy(asc(lawyers.kind), asc(lawyers.name));
+}
+
 /** firmId -> number of individual lawyers in that firm. */
 export async function firmMemberCounts(db: DbOrTx, poolId: string): Promise<Map<string, number>> {
   const rows = await db

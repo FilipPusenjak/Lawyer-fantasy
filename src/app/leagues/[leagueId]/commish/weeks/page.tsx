@@ -62,7 +62,7 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
   }
 
   const total = totalSeasonWeeks(settings.schedule);
-  const [rows, pending, all, teamRows] = await Promise.all([
+  const [allRows, pending, all, teamRows] = await Promise.all([
     getWeekStatuses(db, leagueId),
     pendingEventCountsByWeek(db, { poolId: league.poolId, seasonStart: league.seasonStart, totalWeeks: total }),
     getLeagueMatchups(db, leagueId),
@@ -70,6 +70,10 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
   ]);
   const names = new Map(teamRows.map((t) => [t.id, t.name]));
   const playoff = all.filter((m) => m.isPlayoff);
+  // With fewer teams than playoff spots the bracket has fewer rounds than the settings allow for.
+  const seeded = Math.min(settings.schedule.playoffTeams, teamRows.length);
+  const lastWeek = regularSeasonWeeks(settings.schedule) + playoffRounds(seeded) * settings.schedule.playoffRoundWeeks;
+  const rows = allRows.filter((r) => r.week <= lastWeek);
 
   const finalizable = rows.find((r) => r.canFinalize) ?? null;
   const nextOpen = rows.find((r) => r.state !== "finalized") ?? null;
@@ -157,7 +161,7 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
         names={names}
         totalRounds={totalRounds}
         finalCount={finalCount}
-        totalWeeks={total}
+        totalWeeks={rows.length}
         teamCount={teamRows.length}
       />
 

@@ -14,9 +14,14 @@ export const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
   rostered: "Rostered",
 };
 
-export const SORTS = ["points", "rank", "name"] as const;
+export const SORTS = ["points", "projection", "rank", "name"] as const;
 export type SortKey = (typeof SORTS)[number];
-export const SORT_LABELS: Record<SortKey, string> = { points: "Season points", rank: "Preseason rank", name: "Name" };
+export const SORT_LABELS: Record<SortKey, string> = {
+  points: "Season points",
+  projection: "Projection",
+  rank: "Preseason rank",
+  name: "Name",
+};
 
 export const PAGE_STEP = 50;
 export const MAX_LIMIT = 1000;
@@ -104,6 +109,8 @@ export type ListItem = {
   organization: string | null;
   preseasonRank: number | null;
   seasonPoints: number;
+  /** Projected points for the upcoming week (scouting). */
+  projectedWeek?: number;
   availability: Availability;
   /** Extra searchable text, e.g. the firm's name. */
   searchText?: string;
@@ -126,6 +133,8 @@ export function sortItems<T extends ListItem>(items: T[], sort: SortKey): T[] {
   switch (sort) {
     case "points":
       return out.sort((a, b) => b.seasonPoints - a.seasonPoints || byRank(a, b) || byName(a, b));
+    case "projection":
+      return out.sort((a, b) => (b.projectedWeek ?? 0) - (a.projectedWeek ?? 0) || byRank(a, b) || byName(a, b));
     case "rank":
       return out.sort((a, b) => byRank(a, b) || byName(a, b));
     case "name":

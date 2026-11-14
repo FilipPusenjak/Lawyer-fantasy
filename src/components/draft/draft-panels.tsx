@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, EmptyState, Input, Select, cx } from "@/components/ui";
 import { POSITIONS, POSITION_LABELS, POSITION_SHORT, SLOT_LABELS, type Position, type RosterSettings } from "@/lib/settings";
+import { compareByProjectionRank, fmtProjection, type ProjectionSummary } from "@/lib/projections";
 import {
   buildBoard,
   filterAvailable,
@@ -47,8 +48,8 @@ function RankLabel({ rank }: { rank: number | null }) {
 // Lawyers
 // ---------------------------------------------------------------------------
 
-export type LawyerFilters = { query: string; position: Position | "all"; limit: number };
-export const DEFAULT_FILTERS: LawyerFilters = { query: "", position: "all", limit: PAGE_SIZE };
+export type LawyerFilters = { query: string; position: Position | "all"; limit: number; sort: "rank" | "projection" };
+export const DEFAULT_FILTERS: LawyerFilters = { query: "", position: "all", limit: PAGE_SIZE, sort: "rank" };
 
 export function LawyersPanel({
   pool,
@@ -57,6 +58,7 @@ export function LawyersPanel({
   actions,
   filters,
   onFilters,
+  projections,
 }: {
   pool: DraftLawyer[];
   picked: ReadonlySet<string>;
@@ -65,9 +67,14 @@ export function LawyersPanel({
   /** Kept by the parent so the search survives tab switches. */
   filters: LawyerFilters;
   onFilters: (f: LawyerFilters) => void;
+  /** Scouting projections by lawyer id. */
+  projections: Record<string, ProjectionSummary>;
 }) {
-  const { query, position, limit } = filters;
-  const list = useMemo(() => filterAvailable(pool, picked, { query, position }), [pool, picked, query, position]);
+  const { query, position, limit, sort } = filters;
+  const list = useMemo(() => {
+    const l = filterAvailable(pool, picked, { query, position });
+    return sort === "projection" ? [...l].sort((a, b) => compareByProjectionRank(projections, a, b)) : l;
+  }, [pool, picked, query, position, sort, projections]);
   const shown = list.slice(0, limit);
 
   return (
@@ -95,9 +102,20 @@ export function LawyersPanel({
           </button>
         ))}
       </div>
-      <p className="mt-2 text-xs text-muted">
-        {list.length} available · sorted by preseason rank
-      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted">
+        <span>{list.length} available · sort:</span>
+        {(["rank", "projection"] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            aria-pressed={sort === s}
+            onClick={() => onFilters({ ...filters, sort: s, limit: PAGE_SIZE })}
+            className={cx("min-h-11 px-1 font-semibold", sort === s ? "text-brand" : "text-muted")}
+          >
+            {s === "rank" ? "Draft rank" : "Projection"}
+          </button>
+        ))}
+      </div>
       {list.length === 0 ? (
         <div className="mt-3">
           <EmptyState title="No lawyers match">Try a different search or position.</EmptyState>
@@ -116,6 +134,9 @@ export function LawyersPanel({
                     <span className="truncate">{l.organization ?? (l.kind === "firm" ? "Law firm" : "")}</span>
                   </p>
                 </div>
+                <span className="w-10 shrink-0 text-right font-display text-sm tabular-nums" title="Projected points next week">
+                  {projections[l.id] ? fmtProjection(projections[l.id].projectedWeek) : "–"}
+                </span>
                 {actions.canDraft ? (
                   <Button className="shrink-0 px-3" disabled={actions.busy} onClick={() => actions.onDraft(l)}>
                     Draft

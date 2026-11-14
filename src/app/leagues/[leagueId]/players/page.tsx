@@ -9,6 +9,8 @@ import { getLeagueContext } from "@/server/league-context";
 import { loadAvailability, loadPendingClaimLawyerIds } from "@/server/services/players";
 import { getTeamRoster } from "@/server/services/roster";
 import { getScoreboard } from "@/server/services/scores";
+import { getLeagueProjectionsCached } from "@/server/services/projections";
+import { fmtProjection, PROJECTION_DISCLAIMER } from "@/lib/projections";
 import { dropGoesToWaivers, movesClosedReason, movesOpen } from "@/server/services/transactions-moves";
 import { AddClaimButton, DropButton, MoveProvider } from "./move-controls";
 import { AvailabilityBadge, LawyerLink, PositionBadge } from "./player-bits";
@@ -58,12 +60,14 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
   const base = `/leagues/${leagueId}/players`;
   const tz = settings.schedule.timezone;
 
-  const [sb, availability, myRoster, myClaims] = await Promise.all([
+  const [sb, availability, myRoster, myClaims, proj] = await Promise.all([
     getScoreboard(leagueId),
     loadAvailability(db, leagueId),
     team ? getTeamRoster(db, team.id) : Promise.resolve([]),
     team ? loadPendingClaimLawyerIds(db, team.id) : Promise.resolve(new Map<string, number>()),
+    getLeagueProjectionsCached(leagueId),
   ]);
+  const projLabel = proj.weeks.phase === "complete" ? "proj" : `proj wk${proj.weeks.targetWeek}`;
 
   const canMove = movesOpen(league.status) && !!team;
   const closedReason = movesClosedReason(league.status);
@@ -84,6 +88,7 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
       organization: firm?.name ?? l.organization,
       preseasonRank: l.preseasonRank,
       seasonPoints: sb.lawyerTotal(l.id),
+      projectedWeek: proj.byLawyerId.get(l.id)?.projectedWeek ?? 0,
       availability: a,
       searchText: l.organization ?? "",
     } satisfies ListItem & { kind: string };
@@ -161,6 +166,12 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
           </Link>
         ))}
       </div>
+      <p className="text-xs text-muted">
+        {PROJECTION_DISCLAIMER}{" "}
+        <Link href={`/leagues/${leagueId}/rankings`} className="font-semibold text-brand">
+          Rankings ›
+        </Link>
+      </p>
 
       <Card className="px-3 py-1">
         {shown.length === 0 ? (
@@ -193,6 +204,12 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
                         <AvailabilityBadge availability={a} myTeamId={team?.id ?? null} waiversUntil={waiversUntil} />
                         {claimOrder !== undefined ? <Badge tone="accent">Your claim #{claimOrder}</Badge> : null}
                       </p>
+                    </div>
+                    <div className="w-12 shrink-0 text-right">
+                      <span className="block text-lg font-semibold leading-tight tabular-nums">
+                        {p.projectedWeek !== undefined ? fmtProjection(p.projectedWeek) : "–"}
+                      </span>
+                      <span className="text-[10px] uppercase text-muted">{projLabel}</span>
                     </div>
                     <div className="w-12 shrink-0 text-right">
                       <Points value={p.seasonPoints} className="block text-lg font-semibold leading-tight" />

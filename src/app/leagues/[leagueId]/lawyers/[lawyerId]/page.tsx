@@ -20,6 +20,8 @@ import { leagueClock } from "@/server/services/lineups";
 import { getPoolLawyer, loadAvailability, loadEventDetails, loadLawyerCases, loadPendingClaimLawyerIds } from "@/server/services/players";
 import { getTeamRoster } from "@/server/services/roster";
 import { getScoreboard } from "@/server/services/scores";
+import { getLeagueProjectionsCached } from "@/server/services/projections";
+import { activityLabel, fmtProjection, PROJECTION_DISCLAIMER, projectionInputsLine, projectionRangeLabel } from "@/lib/projections";
 import { dropGoesToWaivers, movesOpen } from "@/server/services/transactions-moves";
 import { AddClaimButton, DropButton, MoveProvider } from "../../players/move-controls";
 import { AvailabilityBadge, LawyerLink, PositionBadge } from "../../players/player-bits";
@@ -51,12 +53,14 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
   const tz = settings.schedule.timezone;
   const isFirm = lawyer.kind === "firm";
 
-  const [sb, availabilityMap, myRoster, myClaims] = await Promise.all([
+  const [sb, availabilityMap, myRoster, myClaims, proj] = await Promise.all([
     getScoreboard(leagueId),
     loadAvailability(db, leagueId),
     team ? getTeamRoster(db, team.id) : Promise.resolve([]),
     team ? loadPendingClaimLawyerIds(db, team.id) : Promise.resolve(new Map<string, number>()),
+    getLeagueProjectionsCached(leagueId),
   ]);
+  const pr = proj.byLawyerId.get(lawyer.id);
 
   const members = isFirm
     ? [...sb.lawyers.values()].filter((l) => l.firmId === lawyer.id).sort((a, b) => sb.lawyerTotal(b.id) - sb.lawyerTotal(a.id) || a.name.localeCompare(b.name))
@@ -162,6 +166,41 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
           </div>
         </div>
       </Card>
+
+      {pr ? (
+        <Card>
+          <CardTitle
+            action={
+              <Link href={`${base}/rankings`} className="inline-flex min-h-11 items-center text-sm font-semibold text-accent">
+                Rankings ›
+              </Link>
+            }
+          >
+            {proj.weeks.phase === "complete" ? "Projection" : `Projection · week ${proj.weeks.targetWeek}`}
+          </CardTitle>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Projected</p>
+              <p className="font-display text-3xl font-bold tabular-nums">{fmtProjection(pr.projectedWeek)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Range</p>
+              <p className="font-display text-xl font-bold tabular-nums">{projectionRangeLabel(pr)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Rank</p>
+              <p className="font-display text-xl font-bold tabular-nums">
+                #{pr.overallRank} · {pr.positionLabel}
+              </p>
+            </div>
+          </div>
+          <p className="mt-2 text-sm text-muted">
+            {projectionInputsLine(pr, proj.lookbackWeeks)} · weeks with points {activityLabel(pr)} · rest of season{" "}
+            {fmtProjection(pr.restOfSeason)}
+          </p>
+          <p className="mt-1 text-xs text-muted">{PROJECTION_DISCLAIMER}</p>
+        </Card>
+      ) : null}
 
       {weeks.length > 0 ? (
         <Card>

@@ -41,7 +41,11 @@ import {
   type DraftTeamInfo,
 } from "./model";
 
+import type { ProjectionSummary } from "@/lib/projections";
+
 type Tab = "lawyers" | "queue" | "board" | "team";
+
+const EMPTY_PROJECTIONS: Record<string, ProjectionSummary> = {};
 
 type Props = {
   leagueId: string;
@@ -50,6 +54,8 @@ type Props = {
   roster: RosterSettings;
   /** Scheduled draft time, already formatted in the league time zone. */
   scheduledLabel: string | null;
+  /** Scouting projections by lawyer id (projected points for the upcoming week). */
+  projections?: Record<string, ProjectionSummary>;
 };
 
 // ---------------------------------------------------------------------------
@@ -304,7 +310,7 @@ function ConnectionNotice({ connection }: { connection: "ok" | "retrying" | "sig
 // Draft room
 // ---------------------------------------------------------------------------
 
-export function DraftRoom({ leagueId, initial, roster, scheduledLabel }: Props) {
+export function DraftRoom({ leagueId, initial, roster, scheduledLabel, projections = EMPTY_PROJECTIONS }: Props) {
   const { state, pool, skewMs, connection, refetch } = useDraftState(leagueId, initial);
   const [message, setMessage] = useState<ActionResult<unknown> | null>(null);
   const [pending, startTransition] = useTransition();
@@ -386,7 +392,15 @@ export function DraftRoom({ leagueId, initial, roster, scheduledLabel }: Props) 
     />
   );
   const lawyersPanel = (
-    <LawyersPanel pool={pool} picked={picked} queued={queued} actions={rowActions} filters={filters} onFilters={setFilters} />
+    <LawyersPanel
+        pool={pool}
+        picked={picked}
+        queued={queued}
+        actions={rowActions}
+        filters={filters}
+        onFilters={setFilters}
+        projections={projections}
+      />
   );
   const toast = <Toast message={message} onClose={() => setMessage(null)} />;
   const boardPanel = (

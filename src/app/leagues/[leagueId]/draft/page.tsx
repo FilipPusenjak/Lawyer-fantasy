@@ -6,6 +6,8 @@ import { shapeDraftState } from "@/components/draft/model";
 import { formatDateTime } from "@/lib/time";
 import { getLeagueContext } from "@/server/league-context";
 import { advanceClock, getDraftState } from "@/server/services/draft";
+import { projectionSummaries } from "@/lib/projections";
+import { getLeagueProjections } from "@/server/services/projections";
 
 export const metadata: Metadata = { title: "Draft room" };
 
@@ -14,7 +16,10 @@ export default async function DraftPage({ params }: PageProps<"/leagues/[leagueI
   const ctx = await getLeagueContext(leagueId);
   const now = new Date();
   await advanceClock(db, leagueId, now);
-  const state = await getDraftState(db, leagueId, { teamId: ctx.team?.id ?? null, includeLawyers: true });
+  const [state, proj] = await Promise.all([
+    getDraftState(db, leagueId, { teamId: ctx.team?.id ?? null, includeLawyers: true }),
+    getLeagueProjections(db, leagueId, now),
+  ]);
   const initial = shapeDraftState(state, {
     myTeamId: ctx.team?.id ?? null,
     isCommissioner: ctx.isCommissioner,
@@ -35,7 +40,13 @@ export default async function DraftPage({ params }: PageProps<"/leagues/[leagueI
   return (
     <Page>
       <PageHeader title="Draft room" subtitle={subtitle} />
-      <DraftRoom leagueId={leagueId} initial={initial} roster={ctx.settings.roster} scheduledLabel={scheduledLabel} />
+      <DraftRoom
+        leagueId={leagueId}
+        initial={initial}
+        roster={ctx.settings.roster}
+        scheduledLabel={scheduledLabel}
+        projections={projectionSummaries(proj.rows)}
+      />
     </Page>
   );
 }

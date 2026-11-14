@@ -45,6 +45,7 @@ export default async function MorePage({ params }: PageProps<"/leagues/[leagueId
 
       <Card>
         <MenuRow href={`${base}/standings`} label="Standings" hint="Records, points and the playoff bracket" />
+        <MenuRow href={`${base}/rankings`} label="Rankings & projections" hint="Projected points and rankings for every lawyer and firm" />
         <MenuRow href={`${base}/matchups`} label="Matchups" hint="Every matchup, period by period" />
         <MenuRow href={`${base}/trades`} label="Trades" hint="Offers you've sent and received" />
         <MenuRow href={`${base}/waivers`} label="Waiver claims" hint="Your pending claims and waiver order" />

@@ -26,7 +26,7 @@ export function LeagueNav({ leagueId }: { leagueId: string }) {
   const base = `/leagues/${leagueId}`;
   const tabs = [
     { key: "home", label: "Home", href: base, match: (p: string) => p === base },
-    { key: "team", label: "My Team", href: `${base}/team`, match: (p: string) => p.startsWith(`${base}/team`) },
+    { key: "team", label: "My Team", href: `${base}/team`, match: (p: string) => p === `${base}/team` || p.startsWith(`${base}/team/`) },
     { key: "players", label: "Lawyers", href: `${base}/players`, match: (p: string) => p.startsWith(`${base}/players`) || p.startsWith(`${base}/lawyers`) },
     { key: "matchup", label: "Matchup", href: `${base}/matchups`, match: (p: string) => p.startsWith(`${base}/matchups`) },
     {
@@ -34,7 +34,7 @@ export function LeagueNav({ leagueId }: { leagueId: string }) {
       label: "League",
       href: `${base}/more`,
       match: (p: string) =>
-        ["/more", "/standings", "/trades", "/draft", "/commish", "/teams", "/waivers", "/activity"].some((s) => p.startsWith(`${base}${s}`)),
+        ["/more", "/standings", "/trades", "/draft", "/commish", "/teams", "/waivers", "/activity", "/rankings"].some((s) => p.startsWith(`${base}${s}`)),
     },
   ];
   return (

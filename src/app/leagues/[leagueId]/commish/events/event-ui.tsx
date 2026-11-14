@@ -6,8 +6,8 @@ import { Badge, Notice, Points, Tabs } from "@/components/ui";
 import { fmtSigned } from "@/lib/format";
 import { sideLabel } from "@/lib/settings";
 import { formatDate } from "@/lib/time";
-import type { EventCredit, EventRow } from "@/server/services/events";
-import { eventLabel, ORIGIN_LABELS, STATUS_LABELS, weekNote } from "./event-rules";
+import { eventMissing, type EventCredit, type EventRow } from "@/server/services/events";
+import { eventLabel, MISSING_LABELS, MISSING_SHORT, ORIGIN_LABELS, STATUS_LABELS, weekNote } from "./event-rules";
 
 export type EventsTab = "queue" | "new" | "history";
 
@@ -36,7 +36,12 @@ function hostOf(url: string): string {
   }
 }
 
-/** Neutral facts about an event plus who it credits under this league's scoring. */
+/**
+ * Neutral facts about an event plus who it credits under this league's
+ * scoring. Suggestions from court records show the docket text as a quote
+ * with a link to the record; incomplete events (no side / lawyer yet) say so
+ * instead of listing credits.
+ */
 export function EventFacts({
   e,
   credits,
@@ -45,6 +50,7 @@ export function EventFacts({
   finalized,
   leagueId,
   showStatus,
+  compactMissing,
 }: {
   e: EventRow;
   credits: EventCredit[];
@@ -53,10 +59,14 @@ export function EventFacts({
   finalized: Set<number>;
   leagueId: string;
   showStatus?: boolean;
+  /** Only badge what's missing (the review queue card shows its own picker and hint). */
+  compactMissing?: boolean;
 }) {
   const note = weekNote(week, totalWeeks, finalized);
   const caseHref = e.caseId ? `/leagues/${leagueId}/commish/pool/cases/${e.caseId}` : null;
   const shown = credits.slice(0, 6);
+  const fromCourt = e.origin === "courtlistener";
+  const missing = e.status === "pending" ? eventMissing(e) : null;
   return (
     <div className="min-w-0 space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
@@ -64,6 +74,7 @@ export function EventFacts({
         {week >= 1 && week <= totalWeeks ? <span>· Week {week}</span> : null}
         <Badge tone={e.origin === "manual" ? "neutral" : "accent"}>{ORIGIN_LABELS[e.origin]}</Badge>
         {showStatus ? <Badge tone={statusTone(e.status)}>{STATUS_LABELS[e.status]}</Badge> : null}
+        {missing ? <Badge tone="warn">{MISSING_SHORT[missing]}</Badge> : null}
       </div>
       <p className="font-semibold">
         {eventLabel(e.type)}
@@ -80,16 +91,29 @@ export function EventFacts({
         {!e.lawyerId && e.side && e.caseType ? <span className="font-semibold"> · {sideLabel(e.caseType, e.side)}</span> : null}
       </p>
       {e.caseCourt ? <p className="text-xs text-muted">{[e.caseCourt, e.caseDocket].filter(Boolean).join(" · ")}</p> : null}
-      {/* Summaries are typed by hand and may hold a pasted link; let it wrap instead of widening the page. */}
-      <p className="break-words text-sm text-muted">{e.summary}</p>
+      {/* Summaries may hold a pasted link or long docket text; let it wrap instead of widening the page. */}
+      {fromCourt ? (
+        <blockquote className="break-words border-l-2 border-accent pl-3 text-sm text-muted">{e.summary}</blockquote>
+      ) : (
+        <p className="break-words text-sm text-muted">{e.summary}</p>
+      )}
       {e.sourceUrl ? (
-        <a href={e.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-block text-sm font-semibold text-accent underline">
-          {hostOf(e.sourceUrl)} ↗
+        <a
+          href={e.sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex min-h-11 items-center text-sm font-semibold text-accent underline"
+        >
+          {fromCourt ? "View record" : hostOf(e.sourceUrl)} ↗
         </a>
       ) : (
         <p className="text-xs text-muted">No source link</p>
       )}
-      {credits.length === 0 ? (
+      {missing ? (
+        compactMissing ? null : (
+          <p className="text-xs text-warn">{MISSING_LABELS[missing]} before approving. It scores nothing until then.</p>
+        )
+      ) : credits.length === 0 ? (
         <p className="text-xs text-warn">
           Nobody is listed on this side of the case yet, so it scores 0 for now.
           {caseHref ? (

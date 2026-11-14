@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { and, asc, count, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { drafts, scoringEvents, teams, trades, users, type Matchup, type Team } from "@/db/schema";
+import { drafts, teams, trades, users, type Matchup, type Team } from "@/db/schema";
 import { Badge, Card, CardTitle, cx, EmptyState, LinkButton, ListRow, Page, Points } from "@/components/ui";
 import { fmtRecord, plural } from "@/lib/format";
 import { median } from "@/lib/schedule";
@@ -17,6 +17,7 @@ import {
   weekStartDate,
 } from "@/lib/time";
 import { getLeagueContext, type LeagueContext } from "@/server/league-context";
+import { countPendingByOrigin } from "@/server/services/events";
 import { leagueClock } from "@/server/services/lineups";
 import { matchupPhase, MATCHUP_PHASE_LABELS, periodTitle, playoffRoundTotal, seasonLength } from "@/server/services/results";
 import { getScoreboard } from "@/server/services/scores";
@@ -106,13 +107,7 @@ async function loadAlerts(ctx: LeagueContext): Promise<Alert[]> {
           .where(and(eq(trades.leagueId, leagueId), eq(trades.recipientTeamId, ctx.team.id), eq(trades.status, "proposed")))
           .then(countOf)
       : 0,
-    ctx.isCommissioner
-      ? db
-          .select({ n: count() })
-          .from(scoringEvents)
-          .where(and(eq(scoringEvents.poolId, ctx.league.poolId), eq(scoringEvents.status, "pending")))
-          .then(countOf)
-      : 0,
+    ctx.isCommissioner ? countPendingByOrigin(db, ctx.league.poolId) : null,
     ctx.isCommissioner
       ? db
           .select({ n: count() })
@@ -123,7 +118,15 @@ async function loadAlerts(ctx: LeagueContext): Promise<Alert[]> {
   ]);
   const out: Alert[] = [];
   if (offers > 0) out.push({ href: `${base}/trades`, text: `${plural(offers, "trade offer")} waiting for your answer` });
-  if (pendingEvents > 0) out.push({ href: `${base}/commish/events`, text: `${plural(pendingEvents, "scoring event")} to review` });
+  if (pendingEvents && pendingEvents.courtlistener > 0) {
+    const n = pendingEvents.courtlistener;
+    out.push({ href: `${base}/commish/events?origin=courtlistener`, text: `${plural(n, "new suggestion")} from court records` });
+  }
+  const otherPending = pendingEvents ? pendingEvents.total - pendingEvents.courtlistener : 0;
+  if (otherPending > 0) {
+    const word = pendingEvents?.courtlistener ? "other scoring event" : "scoring event";
+    out.push({ href: `${base}/commish/events`, text: `${plural(otherPending, word)} to review` });
+  }
   if (inReview > 0) out.push({ href: `${base}/trades`, text: `${plural(inReview, "accepted trade")} in commissioner review` });
   return out;
 }

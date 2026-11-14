@@ -7,8 +7,24 @@ import { isUuid, plural } from "@/lib/format";
 import { addDays, todayIn } from "@/lib/time";
 import { ok, runAction, UserError, type ActionResult } from "@/server/action-result";
 import { actionLeagueContext, canManagePool, type LeagueContext } from "@/server/league-context";
-import { approveEvents, createEvent, rejectEvent, revertEvent, updateEvent } from "@/server/services/events";
-import { parseEventForm, parseReviewOp, type EventFormData, type ParseResult } from "./event-rules";
+import {
+  approveEventsWithReport,
+  approveWithChoices,
+  createEvent,
+  rejectCaseEvents,
+  rejectEvent,
+  revertEvent,
+  updateEvent,
+} from "@/server/services/events";
+import {
+  approveResultMessage,
+  MISSING_LABELS,
+  parseEventForm,
+  parseReviewChoices,
+  parseReviewOp,
+  type EventFormData,
+  type ParseResult,
+} from "./event-rules";
 
 /** Commissioner of this league who may manage its pool. */
 async function poolAccess(leagueId: string): Promise<LeagueContext> {
@@ -76,20 +92,52 @@ export async function updateEventAction(leagueId: string, eventId: string, _prev
   });
 }
 
-/** Review queue form: approve one, reject one, or approve the ticked ones. */
+/**
+ * Review queue form: approve one, reject one, approve the ticked ones, save a
+ * card's picks, or reject everything pending on one case. Approving applies
+ * each card's inline picks (type / side / lawyer) first; events that still
+ * wouldn't credit anyone are skipped and reported.
+ */
 export async function reviewEventsAction(leagueId: string, _prev: unknown, formData: FormData): Promise<ActionResult> {
   return runAction(async () => {
     const ctx = await poolAccess(leagueId);
+    const poolId = ctx.league.poolId;
     const op = unwrap(parseReviewOp(formData));
-    if (op.op === "reject") {
-      await rejectEvent(db, ctx.league.poolId, op.id, ctx.user.id);
-      refreshScores();
-      return ok("Event rejected.");
+    switch (op.op) {
+      case "reject": {
+        await rejectEvent(db, poolId, op.id, ctx.user.id);
+        refreshScores();
+        return ok("Event rejected.");
+      }
+      case "reject-case": {
+        const ids = await rejectCaseEvents(db, poolId, op.caseId, ctx.user.id, {
+          origin: op.origin ?? undefined,
+          createdBefore: op.before ? new Date(op.before) : undefined,
+        });
+        if (ids.length === 0) throw new UserError("Nothing from this case is waiting anymore. Refresh to see the latest.");
+        refreshScores();
+        return ok(`Rejected ${plural(ids.length, "event")} from this case.`);
+      }
+      case "save": {
+        const choice = parseReviewChoices(formData, [op.id]).get(op.id);
+        if (!choice) throw new UserError("Pick a type, side or lawyer first.");
+        await updateEvent(db, poolId, op.id, choice, { onlyPending: true });
+        refreshScores();
+        return ok("Saved. Check who gets the points, then approve.");
+      }
+      case "approve": {
+        const choices = parseReviewChoices(formData, op.ids);
+        const report = await approveWithChoices(db, {
+          poolId,
+          reviewerId: ctx.user.id,
+          items: op.ids.map((id) => ({ id, choice: choices.get(id) })),
+        });
+        if (report.approved.length > 0) refreshScores();
+        const msg = approveResultMessage(report);
+        if (!msg.ok) throw new UserError(msg.error);
+        return ok(msg.message);
+      }
     }
-    const n = await approveEvents(db, ctx.league.poolId, op.ids, ctx.user.id);
-    if (n === 0) throw new UserError("Those events were already reviewed. Refresh to see the latest.");
-    refreshScores();
-    return ok(n === op.ids.length ? `Approved ${plural(n, "event")}.` : `Approved ${plural(n, "event")}. The rest were already reviewed.`);
   });
 }
 
@@ -100,8 +148,10 @@ export async function setEventStatusAction(leagueId: string, eventId: string, _p
     const id = requireId(eventId);
     const op = formData.get("op");
     if (op === "approve") {
-      const n = await approveEvents(db, ctx.league.poolId, [id], ctx.user.id);
-      if (n === 0) throw new UserError("That event isn't pending anymore. Refresh to see its status.");
+      const report = await approveEventsWithReport(db, ctx.league.poolId, [id], ctx.user.id);
+      const skip = report.skipped[0];
+      if (skip?.missing) throw new UserError(`${MISSING_LABELS[skip.missing]} (edit the details below and save), then approve.`);
+      if (report.approved.length === 0) throw new UserError("That event isn't pending anymore. Refresh to see its status.");
       refreshScores();
       return ok("Approved. Points count now.");
     }

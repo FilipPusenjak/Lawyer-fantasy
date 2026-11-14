@@ -2,11 +2,14 @@
  * Scoring events: create, review (approve / reject / move back to pending),
  * edit and list. Events belong to a pool and count for every league using it
  * once approved; point values come from each league's scoring settings.
+ * Automatic suggestions (origin "courtlistener") can arrive incomplete (no
+ * side / no lawyer yet): approval skips those until the commissioner picks
+ * (see eventMissing, approveWithChoices).
  *
  * No request/cookie access (and no runtime import of "@/db"), so the seed
  * script and unit tests can import this module.
  */
-import { and, asc, count, desc, eq, ilike, inArray, ne, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import type { DbOrTx } from "@/db";
 import { caseAppearances, cases, lawyers, scoringEvents, weekFinalizations, type ScoringEvent } from "@/db/schema";
 import { eventValue, round2 } from "@/lib/scoring";
@@ -67,6 +70,49 @@ export type EventRow = {
   createdAt: Date;
   reviewedAt: Date | null;
 };
+
+// ---------------------------------------------------------------------------
+// Completeness (pure) — can approving this event credit anyone?
+// ---------------------------------------------------------------------------
+
+/**
+ * What an event still needs before it can be approved. Automatic suggestions
+ * (court records) may arrive without a side (side couldn't be inferred) or
+ * without a lawyer (e.g. "sanctioned" when the docket doesn't say who).
+ */
+export type EventMissing = "type" | "case" | "side" | "lawyer" | "points";
+
+export type EventTargetFields = {
+  type: string;
+  caseId: string | null;
+  side: Side | null;
+  lawyerId: string | null;
+  customPoints: number | null;
+};
+
+/**
+ * Same shape rules as normalizeEventInput: lawyer-specific types need a
+ * lawyer; "custom" needs points plus a lawyer or a case + side; every other
+ * type needs a case + side. Unknown types need a real type picked first.
+ * (Whether anyone is listed on that side yet doesn't matter: the event starts
+ * scoring as soon as lawyers are added to the case.)
+ */
+export function eventMissing(e: EventTargetFields): EventMissing | null {
+  if (!(EVENT_TYPES as readonly string[]).includes(e.type)) return "type";
+  const type = e.type as EventType;
+  if (LAWYER_SPECIFIC_EVENTS.has(type)) return e.lawyerId ? null : "lawyer";
+  if (type === "custom") {
+    if (e.customPoints === null || !Number.isFinite(e.customPoints)) return "points";
+    if (e.lawyerId) return null;
+  }
+  if (!e.caseId) return "case";
+  if (!e.side) return "side";
+  return null;
+}
+
+export function isEventComplete(e: EventTargetFields): boolean {
+  return eventMissing(e) === null;
+}
 
 // ---------------------------------------------------------------------------
 // Credits (pure) — mirrors the targeting rules in src/lib/scoring.ts
@@ -279,7 +325,77 @@ export async function createEvent(
   });
 }
 
-/** Approve pending events (ids outside the pool or already reviewed are ignored). Returns how many were approved. */
+export type ApproveSkip = {
+  id: string;
+  /** What the event still needs (null when `error` explains the skip instead). */
+  missing: EventMissing | null;
+  /** Why the commissioner's choice for this event couldn't be saved. */
+  error?: string;
+};
+
+export type ApproveReport = {
+  /** Approved now, in the order given. */
+  approved: string[];
+  /** Still pending: incomplete (wouldn't credit anyone) or the choice couldn't be applied. */
+  skipped: ApproveSkip[];
+  /** Not in this pool or already reviewed. */
+  notPending: string[];
+};
+
+/**
+ * Approve pending events that are complete (see eventMissing). Incomplete
+ * ones stay pending and come back in `skipped`; ids outside the pool or
+ * already reviewed come back in `notPending`.
+ */
+export async function approveEventsWithReport(
+  db: DbOrTx,
+  poolId: string,
+  ids: string[],
+  reviewerId: string | null,
+  now: Date = new Date(),
+): Promise<ApproveReport> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return { approved: [], skipped: [], notPending: [] };
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: scoringEvents.id,
+        status: scoringEvents.status,
+        type: scoringEvents.type,
+        caseId: scoringEvents.caseId,
+        side: scoringEvents.side,
+        lawyerId: scoringEvents.lawyerId,
+        customPoints: scoringEvents.customPoints,
+      })
+      .from(scoringEvents)
+      .where(and(eq(scoringEvents.poolId, poolId), inArray(scoringEvents.id, unique)))
+      .for("update");
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const report: ApproveReport = { approved: [], skipped: [], notPending: [] };
+    for (const id of unique) {
+      const r = byId.get(id);
+      if (!r || r.status !== "pending") report.notPending.push(id);
+      else {
+        const missing = eventMissing(r);
+        if (missing) report.skipped.push({ id, missing });
+        else report.approved.push(id);
+      }
+    }
+    if (report.approved.length > 0) {
+      await tx
+        .update(scoringEvents)
+        .set({ status: "approved", reviewedBy: reviewerId, reviewedAt: now })
+        .where(and(eq(scoringEvents.poolId, poolId), inArray(scoringEvents.id, report.approved), eq(scoringEvents.status, "pending")));
+    }
+    return report;
+  });
+}
+
+/**
+ * Approve pending events. Ids outside the pool, already reviewed, or
+ * incomplete (they wouldn't credit anyone) are left alone; use
+ * approveEventsWithReport to learn which. Returns how many were approved.
+ */
 export async function approveEvents(
   db: DbOrTx,
   poolId: string,
@@ -287,13 +403,70 @@ export async function approveEvents(
   reviewerId: string | null,
   now: Date = new Date(),
 ): Promise<number> {
-  if (ids.length === 0) return 0;
-  const rows = await db
-    .update(scoringEvents)
-    .set({ status: "approved", reviewedBy: reviewerId, reviewedAt: now })
-    .where(and(eq(scoringEvents.poolId, poolId), inArray(scoringEvents.id, ids), eq(scoringEvents.status, "pending")))
-    .returning({ id: scoringEvents.id });
-  return rows.length;
+  const report = await approveEventsWithReport(db, poolId, ids, reviewerId, now);
+  return report.approved.length;
+}
+
+/** The commissioner's picks for a pending event in the review queue. */
+export type EventChoice = { type?: EventType; side?: Side | null; lawyerId?: string | null };
+
+/**
+ * Review queue "Approve": save each event's choices (type / side / lawyer)
+ * and approve, all in one transaction. An event whose choice can't be saved
+ * (still incomplete, lawyer outside the pool…) or that is still incomplete is
+ * skipped and stays pending; the others are approved.
+ */
+export async function approveWithChoices(
+  db: DbOrTx,
+  args: {
+    poolId: string;
+    reviewerId: string | null;
+    items: { id: string; choice?: EventChoice }[];
+    now?: Date;
+  },
+): Promise<ApproveReport> {
+  const now = args.now ?? new Date();
+  const items = [...new Map(args.items.map((i) => [i.id, i])).values()];
+  if (items.length === 0) return { approved: [], skipped: [], notPending: [] };
+  return db.transaction(async (tx) => {
+    const current = await tx
+      .select({ id: scoringEvents.id, status: scoringEvents.status, type: scoringEvents.type, side: scoringEvents.side, lawyerId: scoringEvents.lawyerId })
+      .from(scoringEvents)
+      .where(and(eq(scoringEvents.poolId, args.poolId), inArray(scoringEvents.id, items.map((i) => i.id))));
+    const pending = new Map(current.filter((r) => r.status === "pending").map((r) => [r.id, r]));
+    const notPending: string[] = [];
+    const failed: ApproveSkip[] = [];
+    const ready: string[] = [];
+    for (const item of items) {
+      const row = pending.get(item.id);
+      if (!row) {
+        notPending.push(item.id);
+        continue;
+      }
+      // Cards always submit their type select; only touch events whose picks change something.
+      const choice = item.choice ? withoutUndefined(item.choice) : {};
+      const changes = (Object.keys(choice) as (keyof EventChoice)[]).some((k) => choice[k] !== row[k]);
+      if (changes) {
+        try {
+          await updateEvent(tx, args.poolId, item.id, choice, { onlyPending: true });
+        } catch (e) {
+          if (!(e instanceof UserError)) throw e;
+          failed.push({ id: item.id, missing: null, error: e.message });
+          continue;
+        }
+      }
+      ready.push(item.id);
+    }
+    const report = await approveEventsWithReport(tx, args.poolId, ready, args.reviewerId, now);
+    // Keep the caller's order for skipped events.
+    const order = new Map(items.map((i, n) => [i.id, n]));
+    const skipped = [...failed, ...report.skipped].sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    return { approved: report.approved, skipped, notPending: [...notPending, ...report.notPending] };
+  });
+}
+
+function withoutUndefined<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 /** Reject a pending event. */
@@ -306,6 +479,30 @@ export async function rejectEvent(db: DbOrTx, poolId: string, id: string, review
   if (rows.length === 0) throw new UserError("That event was already reviewed. Refresh to see its status.");
 }
 
+/**
+ * Reject every pending event on one case (noisy dockets), optionally only one
+ * origin and only events created by `createdBefore` (so suggestions that
+ * arrived after the commissioner loaded the page aren't swept up unseen).
+ * Returns the rejected ids.
+ */
+export async function rejectCaseEvents(
+  db: DbOrTx,
+  poolId: string,
+  caseId: string,
+  reviewerId: string | null,
+  opts: { origin?: EventOrigin; createdBefore?: Date; now?: Date } = {},
+): Promise<string[]> {
+  const conds: SQL[] = [eq(scoringEvents.poolId, poolId), eq(scoringEvents.caseId, caseId), eq(scoringEvents.status, "pending")];
+  if (opts.origin) conds.push(eq(scoringEvents.origin, opts.origin));
+  if (opts.createdBefore) conds.push(lte(scoringEvents.createdAt, opts.createdBefore));
+  const rows = await db
+    .update(scoringEvents)
+    .set({ status: "rejected", reviewedBy: reviewerId, reviewedAt: opts.now ?? new Date() })
+    .where(and(...conds))
+    .returning({ id: scoringEvents.id });
+  return rows.map((r) => r.id);
+}
+
 /** Move an approved or rejected event back to the review queue. */
 export async function revertEvent(db: DbOrTx, poolId: string, id: string): Promise<void> {
   const rows = await db
@@ -316,15 +513,67 @@ export async function revertEvent(db: DbOrTx, poolId: string, id: string): Promi
   if (rows.length === 0) throw new UserError("That event is already in the review queue.");
 }
 
-/** Edit an event's facts (its status doesn't change). */
-export async function updateEvent(db: DbOrTx, poolId: string, id: string, raw: EventInput): Promise<void> {
+/** Some of an event's fields; omitted (undefined) fields keep their current value. */
+export type EventPatch = Partial<EventInput>;
+
+const EVENT_INPUT_KEYS = ["type", "caseId", "side", "lawyerId", "occurredOn", "summary", "sourceUrl", "customPoints"] as const;
+
+/** Court text can run long; an untouched summary is clipped rather than blocking a side/type change. */
+function clipSummary(s: string): string {
+  const t = s.trim().replace(/\s+/g, " ");
+  return t.length > SUMMARY_MAX ? `${t.slice(0, SUMMARY_MAX - 1).trimEnd()}…` : t;
+}
+
+/**
+ * Edit an event's facts (its status doesn't change). Pass a full EventInput
+ * (edit form) or a patch (review queue: e.g. `{ side }`, `{ type, lawyerId }`)
+ * that is merged over the current values. The result must be a complete,
+ * valid event and its case/lawyer must be in the pool. With `onlyPending`,
+ * refuses events that were already reviewed. A patch that changes nothing is a
+ * no-op.
+ */
+export async function updateEvent(
+  db: DbOrTx,
+  poolId: string,
+  id: string,
+  raw: EventInput | EventPatch,
+  opts: { onlyPending?: boolean } = {},
+): Promise<void> {
   await db.transaction(async (tx) => {
     const [existing] = await tx
-      .select({ origin: scoringEvents.origin })
+      .select({
+        origin: scoringEvents.origin,
+        status: scoringEvents.status,
+        type: scoringEvents.type,
+        caseId: scoringEvents.caseId,
+        side: scoringEvents.side,
+        lawyerId: scoringEvents.lawyerId,
+        occurredOn: scoringEvents.occurredOn,
+        summary: scoringEvents.summary,
+        sourceUrl: scoringEvents.sourceUrl,
+        customPoints: scoringEvents.customPoints,
+      })
       .from(scoringEvents)
-      .where(and(eq(scoringEvents.id, id), eq(scoringEvents.poolId, poolId)));
+      .where(and(eq(scoringEvents.id, id), eq(scoringEvents.poolId, poolId)))
+      .for("update");
     if (!existing) throw new UserError("That event isn't in this pool.");
-    const input = normalizeEventInput(raw, { requireSource: existing.origin === "manual" });
+    if (opts.onlyPending && existing.status !== "pending") throw new UserError("That event was already reviewed. Refresh to see its status.");
+
+    const isFull = EVENT_INPUT_KEYS.every((k) => raw[k] !== undefined);
+    if (!isFull && EVENT_INPUT_KEYS.every((k) => raw[k] === undefined || raw[k] === existing[k])) return;
+    const merged: EventInput = isFull
+      ? (raw as EventInput)
+      : {
+          type: (raw.type ?? existing.type) as EventType,
+          caseId: raw.caseId !== undefined ? raw.caseId : existing.caseId,
+          side: raw.side !== undefined ? raw.side : existing.side,
+          lawyerId: raw.lawyerId !== undefined ? raw.lawyerId : existing.lawyerId,
+          occurredOn: raw.occurredOn ?? existing.occurredOn,
+          summary: raw.summary ?? clipSummary(existing.summary),
+          sourceUrl: raw.sourceUrl !== undefined ? raw.sourceUrl : existing.sourceUrl,
+          customPoints: raw.customPoints !== undefined ? raw.customPoints : existing.customPoints,
+        };
+    const input = normalizeEventInput(merged, { requireSource: existing.origin === "manual" });
     await assertTargetsInPool(tx, poolId, input);
     await tx
       .update(scoringEvents)
@@ -369,6 +618,7 @@ const eventColumns = {
 
 export type EventFilter = {
   statuses?: EventStatus[];
+  origins?: EventOrigin[];
   type?: EventType;
   q?: string;
   caseId?: string;
@@ -381,6 +631,7 @@ export type EventFilter = {
 export async function listEvents(db: DbOrTx, poolId: string, f: EventFilter = {}): Promise<EventRow[]> {
   const conds: SQL[] = [eq(scoringEvents.poolId, poolId)];
   if (f.statuses?.length) conds.push(inArray(scoringEvents.status, f.statuses));
+  if (f.origins?.length) conds.push(inArray(scoringEvents.origin, f.origins));
   if (f.type) conds.push(eq(scoringEvents.type, f.type));
   if (f.caseId) conds.push(eq(scoringEvents.caseId, f.caseId));
   const q = f.q?.trim();
@@ -402,9 +653,27 @@ export async function listEvents(db: DbOrTx, poolId: string, f: EventFilter = {}
     .offset(f.offset ?? 0);
 }
 
-/** Review queue: pending events in the pool, oldest first. */
-export async function listPending(db: DbOrTx, poolId: string, limit = 200): Promise<EventRow[]> {
-  return listEvents(db, poolId, { statuses: ["pending"], oldestFirst: true, limit });
+export type PendingEventRow = EventRow & {
+  /** False when approving it wouldn't credit anyone yet (see eventMissing). */
+  complete: boolean;
+  missing: EventMissing | null;
+};
+
+export type PendingFilter = { origin?: EventOrigin; caseId?: string };
+
+/** Review queue: pending events in the pool, oldest first, optionally one origin and/or one case. */
+export async function listPending(db: DbOrTx, poolId: string, limit = 200, filter: PendingFilter = {}): Promise<PendingEventRow[]> {
+  const rows = await listEvents(db, poolId, {
+    statuses: ["pending"],
+    origins: filter.origin ? [filter.origin] : undefined,
+    caseId: filter.caseId,
+    oldestFirst: true,
+    limit,
+  });
+  return rows.map((r) => {
+    const missing = eventMissing(r);
+    return { ...r, complete: missing === null, missing };
+  });
 }
 
 export async function countPending(db: DbOrTx, poolId: string): Promise<number> {
@@ -413,6 +682,73 @@ export async function countPending(db: DbOrTx, poolId: string): Promise<number> 
     .from(scoringEvents)
     .where(and(eq(scoringEvents.poolId, poolId), eq(scoringEvents.status, "pending")));
   return r?.n ?? 0;
+}
+
+/** Pending events per origin (plus the total), e.g. for "N new suggestions from court records". */
+export async function countPendingByOrigin(db: DbOrTx, poolId: string): Promise<Record<EventOrigin, number> & { total: number }> {
+  const rows = await db
+    .select({ origin: scoringEvents.origin, n: count() })
+    .from(scoringEvents)
+    .where(and(eq(scoringEvents.poolId, poolId), eq(scoringEvents.status, "pending")))
+    .groupBy(scoringEvents.origin);
+  const out = { manual: 0, courtlistener: 0, ai: 0, total: 0 };
+  for (const r of rows) {
+    out[r.origin] += r.n;
+    out.total += r.n;
+  }
+  return out;
+}
+
+/** Pending events grouped by origin and case, for the review queue's filters and counts. */
+export type PendingGroup = {
+  origin: EventOrigin;
+  caseId: string | null;
+  caseCaption: string | null;
+  caseDocket: string | null;
+  count: number;
+  /** How many of them still need a side / lawyer / type before they can be approved. */
+  incomplete: number;
+};
+
+export async function pendingGroups(db: DbOrTx, poolId: string): Promise<PendingGroup[]> {
+  const hasLawyer = sql<boolean>`(${scoringEvents.lawyerId} is not null)`;
+  const hasPoints = sql<boolean>`(${scoringEvents.customPoints} is not null)`;
+  const rows = await db
+    .select({
+      origin: scoringEvents.origin,
+      caseId: scoringEvents.caseId,
+      caseCaption: cases.caption,
+      caseDocket: cases.docketNumber,
+      type: scoringEvents.type,
+      side: scoringEvents.side,
+      hasLawyer,
+      hasPoints,
+      n: count(),
+    })
+    .from(scoringEvents)
+    .leftJoin(cases, eq(cases.id, scoringEvents.caseId))
+    .where(and(eq(scoringEvents.poolId, poolId), eq(scoringEvents.status, "pending")))
+    .groupBy(scoringEvents.origin, scoringEvents.caseId, cases.caption, cases.docketNumber, scoringEvents.type, scoringEvents.side, hasLawyer, hasPoints);
+  const groups = new Map<string, PendingGroup>();
+  for (const r of rows) {
+    const key = `${r.origin}|${r.caseId ?? ""}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { origin: r.origin, caseId: r.caseId, caseCaption: r.caseCaption, caseDocket: r.caseDocket, count: 0, incomplete: 0 };
+      groups.set(key, g);
+    }
+    g.count += r.n;
+    // Only null-ness of the lawyer and points matters for completeness.
+    const missing = eventMissing({
+      type: r.type,
+      caseId: r.caseId,
+      side: r.side,
+      lawyerId: r.hasLawyer ? "set" : null,
+      customPoints: r.hasPoints ? 0 : null,
+    });
+    if (missing) g.incomplete += r.n;
+  }
+  return [...groups.values()];
 }
 
 export async function getPoolEvent(db: DbOrTx, poolId: string, id: string): Promise<EventRow | null> {

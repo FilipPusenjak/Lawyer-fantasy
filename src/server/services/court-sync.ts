@@ -38,9 +38,10 @@ import type { DbOrTx } from "@/db";
 import { caseAppearances, cases, lawyers, leagues, pools, scoringEvents, type Case } from "@/db/schema";
 import { courtIdFromText, docketNumbersMatch, docketSearchTerm } from "@/lib/court/courts";
 import { normalizeScotusDocket, parseScotusDocket, scotusJsonUrl, type ScotusDocket } from "@/lib/court/scotus";
-import { FIRST_SYNC_DAYS, planCourtListener, planScotus, type PlannedEvent } from "@/lib/court/sync-plan";
+import { courtListenerCandidates, FIRST_SYNC_DAYS, planCourtListener, planScotus, type AiVerdicts, type PlannedEvent } from "@/lib/court/sync-plan";
 import { isGovernmentParty, partiesFromCaption, partyCore, type NamedLawyer, type PartyNames } from "@/lib/court/text";
 import { UserError } from "@/server/action-result";
+import { AI_MAX_ENTRIES, AiClassifyError, aiConfigured, classifyEntriesWithClaude, type AiClient } from "@/server/court/ai-classify";
 import {
   CourtListenerError,
   COURTLISTENER_SITE,
@@ -62,6 +63,8 @@ export type SyncResult = {
   /** Pending scoring events created this run. */
   suggestions: number;
   error?: string;
+  /** Phase 3: entries Claude sorted this run, or why the keyword rules were used instead. */
+  claude?: { sorted: number; error?: string };
 };
 
 /** cases.syncError marker for cases autoLinkPoolCases couldn't match (skipped by later auto-link runs; cleared by linkCaseToDocket). */
@@ -74,6 +77,8 @@ const CL_PAGES_PER_CASE = 2;
 /** Unlinked federal cases the daily run tries to auto-link per pool. */
 const AUTO_LINK_PER_POOL = 5;
 const FETCH_TIMEOUT_MS = 20_000;
+/** Phase 3: Claude requests per daily run (one per case with new activity); caps cost at about $1 a day. */
+const CLAUDE_CALLS_PER_RUN = 10;
 
 /** "25-159" when the case is a Supreme Court case with a docket number in that form, else null. */
 export function scotusDocketFromCase(c: { caseType: string; docketNumber: string | null }): string | null {
@@ -148,6 +153,9 @@ async function insertPlanned(db: DbOrTx, c: Case, events: PlannedEvent[]): Promi
         status: "pending" as const,
         origin: "courtlistener" as const,
         externalRef: e.externalRef,
+        suggestionNote: e.reason || null,
+        suggestionConfidence: e.confidence ?? null,
+        suggestionModel: e.model ?? null,
         createdBy: null,
       })),
     )
@@ -210,7 +218,62 @@ function knownDocketUrl(c: Case): string | null {
   return m && Number(m[1]) === id ? `${COURTLISTENER_SITE}/docket/${id}/${m[2] || "docket"}/` : null;
 }
 
-async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: number, notBefore: string | null): Promise<Internal> {
+/** Phase 3: Claude budget for one run (requests and deadline). Tests pass a fake client. */
+export type ClaudeBudget = { maxCalls: number; calls: number; deadline: number; client?: AiClient };
+/** Don't start a Claude request with less time than this left before the run's deadline. */
+const CLAUDE_MIN_TIME_LEFT_MS = 60_000;
+const CLAUDE_TIMEOUT_MS = 75_000;
+
+export function claudeBudget(maxCalls: number, deadline = Number.POSITIVE_INFINITY, client?: AiClient): ClaudeBudget {
+  return { maxCalls: Math.max(0, Math.floor(maxCalls)), calls: 0, deadline, client };
+}
+
+/**
+ * Ask Claude to sort this run's candidate entries. Returns null verdicts (so
+ * the keyword rules are used) when Claude isn't connected, the run's Claude
+ * budget or time is used up, or the request fails.
+ */
+async function sortWithClaude(
+  c: Case,
+  onCase: CaseLawyer[],
+  candidates: { entryId: number; dateFiled: string | null; dateModified: string; description: string }[],
+  budget: ClaudeBudget | null,
+): Promise<{ ai: AiVerdicts | null; claude?: SyncResult["claude"] }> {
+  if (!budget || candidates.length === 0 || (!budget.client && !aiConfigured())) return { ai: null };
+  if (budget.calls >= budget.maxCalls) {
+    return { ai: null, claude: { sorted: 0, error: "Claude's limit for this run was reached; keyword rules were used." } };
+  }
+  const left = budget.deadline - Date.now();
+  if (left < CLAUDE_MIN_TIME_LEFT_MS) return { ai: null, claude: { sorted: 0, error: "Not enough time left in this run for Claude; keyword rules were used." } };
+  budget.calls++;
+  try {
+    const ai = await classifyEntriesWithClaude(
+      {
+        caption: c.caption,
+        court: c.court,
+        docketNumber: c.docketNumber,
+        caseType: c.caseType,
+        lawyers: onCase.map((l) => ({ id: l.id, name: l.name, side: l.side, kind: l.kind })),
+      },
+      candidates.slice(0, AI_MAX_ENTRIES).map((e) => ({ entryId: e.entryId, date: e.dateFiled ?? e.dateModified.slice(0, 10), text: e.description })),
+      { client: budget.client, timeoutMs: Math.min(CLAUDE_TIMEOUT_MS, left - 15_000), maxRetries: Number.isFinite(budget.deadline) ? 0 : 1 },
+    );
+    return { ai, claude: { sorted: ai.byEntry.size } };
+  } catch (e) {
+    const error = e instanceof AiClassifyError ? e.message : "Claude couldn't sort these entries; keyword rules were used.";
+    console.error(`[court-sync] Claude sorting failed for case ${c.id}: ${error}`);
+    return { ai: null, claude: { sorted: 0, error } };
+  }
+}
+
+async function syncCourtListener(
+  db: DbOrTx,
+  c: Case,
+  now: Date,
+  maxPages: number,
+  notBefore: string | null,
+  claude: ClaudeBudget | null = null,
+): Promise<Internal> {
   const base: SyncResult = { caseId: c.id, caption: c.caption, source: "courtlistener", newEntries: 0, suggestions: 0 };
   const docketId = c.courtlistenerDocketId;
   if (!docketId) return { result: { ...base, error: "This case isn't linked to a CourtListener docket." }, requests: 0, rateLimited: false };
@@ -225,6 +288,8 @@ async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: numbe
     const onCase = await caseLawyers(db, c.id);
     const attorneys: PartyNames = { plaintiff: [], defendant: [] };
     for (const l of onCase) if (l.kind === "lawyer") attorneys[l.side].push(l.name);
+    const candidates = courtListenerCandidates({ entries: page.entries, cursor: c.syncCursor, now, notBefore });
+    const { ai, claude: claudeInfo } = await sortWithClaude(c, onCase, candidates, claude);
     const plan = planCourtListener({
       entries: page.entries,
       cursor: c.syncCursor,
@@ -233,13 +298,18 @@ async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: numbe
       caption: c.caption,
       attorneys,
       notBefore,
+      ai,
     });
     const suggestions = await insertPlanned(db, c, plan.events);
     await db
       .update(cases)
       .set({ syncedAt: now, syncCursor: plan.nextCursor ?? since, syncError: null })
       .where(eq(cases.id, c.id));
-    return { result: { ...base, newEntries: plan.newEntries, suggestions }, requests, rateLimited: false };
+    return {
+      result: { ...base, newEntries: plan.newEntries, suggestions, ...(claudeInfo ? { claude: claudeInfo } : {}) },
+      requests,
+      rateLimited: false,
+    };
   } catch (e) {
     const rateLimited = e instanceof CourtListenerError && e.status === 429;
     if (!rateLimited) console.error(`[court-sync] CourtListener sync failed for case ${c.id}`, e instanceof Error ? e.message : e);
@@ -255,10 +325,17 @@ async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: numbe
   }
 }
 
-async function syncLoaded(db: DbOrTx, c: Case, now: Date, notBefore: string | null, maxPages = CL_PAGES_PER_CASE): Promise<Internal> {
+async function syncLoaded(
+  db: DbOrTx,
+  c: Case,
+  now: Date,
+  notBefore: string | null,
+  maxPages = CL_PAGES_PER_CASE,
+  claude: ClaudeBudget | null = null,
+): Promise<Internal> {
   const docket = scotusDocketFromCase(c);
   if (docket) return syncScotus(db, c, docket, now, notBefore);
-  if (c.courtlistenerDocketId) return syncCourtListener(db, c, now, maxPages, notBefore);
+  if (c.courtlistenerDocketId) return syncCourtListener(db, c, now, maxPages, notBefore, claude);
   return {
     result: {
       caseId: c.id,
@@ -296,8 +373,8 @@ async function poolFloors(db: DbOrTx, poolId?: string): Promise<Map<string, stri
   return new Map(rows.map((r) => [r.poolId, r.start]));
 }
 
-/** Pull new activity for one case and create pending suggestions. */
-export async function syncCase(db: DbOrTx, caseId: string, now: Date = new Date()): Promise<SyncResult> {
+/** Pull new activity for one case and create pending suggestions (Claude sorts CourtListener entries when connected). */
+export async function syncCase(db: DbOrTx, caseId: string, now: Date = new Date(), opts: { claude?: ClaudeBudget | null } = {}): Promise<SyncResult> {
   const [row] = await db.select({ c: cases, isDemo: pools.isDemo }).from(cases).innerJoin(pools, eq(pools.id, cases.poolId)).where(eq(cases.id, caseId));
   if (!row) throw new UserError("That case doesn't exist.");
   const c = row.c;
@@ -306,7 +383,8 @@ export async function syncCase(db: DbOrTx, caseId: string, now: Date = new Date(
     return { caseId: c.id, caption: c.caption, source, newEntries: 0, suggestions: 0, error: DEMO_POOL_MESSAGE };
   }
   const floor = (await poolFloors(db, c.poolId)).get(c.poolId) ?? null;
-  return (await syncLoaded(db, c, now, floor)).result;
+  const claude = opts.claude === undefined ? claudeBudget(1) : opts.claude;
+  return (await syncLoaded(db, c, now, floor, CL_PAGES_PER_CASE, claude)).result;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +457,7 @@ export type AutoLinkRun = { poolId: string; linked: number; notFound: number; re
 export async function runCourtSync(
   db: DbOrTx,
   now: Date = new Date(),
-  opts: { maxCourtListenerCalls?: number; deadlineMs?: number; autoLinkPerPool?: number } = {},
+  opts: { maxCourtListenerCalls?: number; deadlineMs?: number; autoLinkPerPool?: number; maxClaudeCalls?: number; claudeClient?: AiClient } = {},
 ): Promise<{ results: SyncResult[]; skipped: number; autoLinked: AutoLinkRun[] }> {
   const budget: Budget = {
     maxCalls: Math.max(0, opts.maxCourtListenerCalls ?? 20),
@@ -388,6 +466,7 @@ export async function runCourtSync(
     deadline: opts.deadlineMs ?? Number.POSITIVE_INFINITY,
     stopped: false,
   };
+  const claude = claudeBudget(opts.maxClaudeCalls ?? CLAUDE_CALLS_PER_RUN, budget.deadline, opts.claudeClient);
   const floors = await poolFloors(db);
   const poolIds = [...floors.keys()];
   if (poolIds.length === 0) return { results: [], skipped: 0, autoLinked: [] };
@@ -442,7 +521,7 @@ export async function runCourtSync(
       skipped++;
       continue;
     }
-    const r = await syncLoaded(db, c, now, floors.get(c.poolId) ?? null, pages);
+    const r = await syncLoaded(db, c, now, floors.get(c.poolId) ?? null, pages, claude);
     spend(budget, r.requests);
     results.push(r.result);
     if (r.rateLimited) budget.stopped = true; // respect 429: no more CourtListener work this run

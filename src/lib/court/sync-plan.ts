@@ -24,9 +24,54 @@ export type PlannedEvent = {
   occurredOn: string;
   summary: string;
   sourceUrl: string | null;
-  /** Why this was suggested (not stored; for logs/tests). */
+  /** Why this was suggested (stored as scoring_events.suggestion_note). */
   reason: string;
+  /** Phase 3: Claude's confidence; absent for keyword rules. */
+  confidence?: AiConfidence;
+  /** Phase 3: the Claude model that sorted it; absent for keyword rules. */
+  model?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Phase 3: Claude's verdicts on docket entries (produced by
+// src/server/court/ai-classify.ts; consumed by planCourtListener)
+// ---------------------------------------------------------------------------
+
+export const AI_CONFIDENCES = ["high", "medium", "low"] as const;
+export type AiConfidence = (typeof AI_CONFIDENCES)[number];
+
+/** Event types Claude may suggest for a docket entry (verdict losses are paired automatically). */
+export const AI_EVENT_TYPES = [
+  "motion_granted",
+  "motion_denied",
+  "dismissed_favorable",
+  "summary_judgment_won",
+  "verdict_win",
+  "settlement_favorable",
+  "appeal_won",
+  "sanctioned",
+  "guilty_plea",
+  "plea_reduced",
+  "filing",
+] as const satisfies readonly EventType[];
+export type AiEventType = (typeof AI_EVENT_TYPES)[number];
+
+export type AiVerdict =
+  | { entryId: number; skip: true; note: string }
+  | {
+      entryId: number;
+      skip: false;
+      type: AiEventType;
+      /** Null when unclear, and always for "sanctioned" (lawyer-specific). */
+      side: Side | null;
+      /** Only for "sanctioned", when the docket text names one of the case's pool lawyers. */
+      lawyerId: string | null;
+      confidence: AiConfidence;
+      note: string;
+    };
+
+/** Claude's verdicts for some of a run's entries; entries without one fall back to the keyword rules. */
+export type AiVerdicts = { model: string; byEntry: Map<number, AiVerdict> };
 
 export type Plan = {
   events: PlannedEvent[];
@@ -157,7 +202,26 @@ export type ClPlanInput = {
   /** YYYY-MM-DD: older entries are consumed without suggestions (see suggestionCutoff). */
   notBefore?: string | null;
   maxSuggestions?: number;
+  /** Phase 3: Claude's verdicts by entry id (they replace the keyword rules for those entries). */
+  ai?: AiVerdicts | null;
 };
+
+/** Date an entry happened: date filed, else the day it was modified. */
+function entryDate(e: PlanEntry): string {
+  return e.dateFiled ?? e.dateModified.slice(0, 10);
+}
+
+/**
+ * Entries that could become suggestions this run (dated on/after the cutoff),
+ * in processing order: what Claude is asked to sort.
+ */
+export function courtListenerCandidates(input: Pick<ClPlanInput, "entries" | "cursor" | "now" | "notBefore">): PlanEntry[] {
+  const cutoff = suggestionCutoff(input.now, input.cursor === null, input.notBefore);
+  return input.entries.filter((e) => {
+    const d = entryDate(e);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= cutoff;
+  });
+}
 
 /**
  * Classify entries in date_modified order. A verdict with an explicit winner
@@ -174,15 +238,24 @@ export function planCourtListener(input: ClPlanInput): Plan {
   let consumed = 0;
   let capped = false;
   for (const e of input.entries) {
-    const occurredOn = e.dateFiled ?? e.dateModified.slice(0, 10);
+    const occurredOn = entryDate(e);
     const batch: PlannedEvent[] = [];
     if (/^\d{4}-\d{2}-\d{2}$/.test(occurredOn) && occurredOn >= cutoff) {
-      const c = classifyDocketEntry(e.description, opts);
+      const v = input.ai?.byEntry.get(e.entryId);
+      const fromAi = v ? { confidence: v.skip ? undefined : v.confidence, model: input.ai!.model } : {};
+      const c: { skip: true } | { skip: false; type: EventType; side: Side | null; lawyerId: string | null; reason: string } = v
+        ? v.skip
+          ? { skip: true }
+          : { skip: false, type: v.type, side: v.type === "sanctioned" ? null : v.side, lawyerId: v.type === "sanctioned" ? v.lawyerId : null, reason: v.note }
+        : (() => {
+            const k = classifyDocketEntry(e.description, opts);
+            return k.skip ? { skip: true as const } : { skip: false as const, type: k.type, side: k.side, lawyerId: null, reason: k.reason };
+          })();
       if (!c.skip) {
         const ref = `cl-entry:${e.entryId}`;
         const summary = summarize(e.description) || "Docket entry";
         const sourceUrl = safeUrl(e.url);
-        batch.push({ externalRef: ref, type: c.type, side: c.side, lawyerId: null, occurredOn, summary, sourceUrl, reason: c.reason });
+        batch.push({ externalRef: ref, type: c.type, side: c.side, lawyerId: c.lawyerId, occurredOn, summary, sourceUrl, reason: c.reason, ...fromAi });
         if (c.type === "verdict_win" && c.side) {
           batch.push({
             externalRef: `${ref}:loss`,
@@ -193,6 +266,7 @@ export function planCourtListener(input: ClPlanInput): Plan {
             summary,
             sourceUrl,
             reason: "Other side of the verdict",
+            ...fromAi,
           });
         }
       }

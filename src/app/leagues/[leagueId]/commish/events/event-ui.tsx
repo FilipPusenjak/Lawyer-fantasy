@@ -73,6 +73,7 @@ export function EventFacts({
         <span>{formatDate(e.occurredOn)}</span>
         {week >= 1 && week <= totalWeeks ? <span>· Week {week}</span> : null}
         <Badge tone={e.origin === "manual" ? "neutral" : "accent"}>{ORIGIN_LABELS[e.origin]}</Badge>
+        {e.suggestionModel ? <Badge tone="brand">Sorted by Claude</Badge> : null}
         {showStatus ? <Badge tone={statusTone(e.status)}>{STATUS_LABELS[e.status]}</Badge> : null}
         {missing ? <Badge tone="warn">{MISSING_SHORT[missing]}</Badge> : null}
       </div>
@@ -97,6 +98,13 @@ export function EventFacts({
       ) : (
         <p className="break-words text-sm text-muted">{e.summary}</p>
       )}
+      {e.suggestionNote && e.origin !== "manual" ? (
+        <p className="break-words text-xs text-muted">
+          <span className="font-semibold text-ink">{e.suggestionModel ? "Why Claude suggested this:" : "Why it was suggested:"}</span>{" "}
+          {e.suggestionNote}
+          {e.suggestionConfidence ? ` (${e.suggestionConfidence} confidence)` : ""}
+        </p>
+      ) : null}
       {e.sourceUrl ? (
         <a
           href={e.sourceUrl}

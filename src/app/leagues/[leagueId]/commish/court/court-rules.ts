@@ -479,8 +479,11 @@ export function courtErrorMessage(e: unknown): string | null {
   return "CourtListener didn't answer as expected. Try again in a few minutes.";
 }
 
-export function syncResultMessage(r: { newEntries: number; suggestions: number }): string {
-  return `${plural(r.newEntries, "new filing")}, ${plural(r.suggestions, "suggestion")} added.`;
+export function syncResultMessage(r: { newEntries: number; suggestions: number; claude?: { sorted: number; error?: string } }): string {
+  const base = `${plural(r.newEntries, "new filing")}, ${plural(r.suggestions, "suggestion")} added.`;
+  if (!r.claude) return base;
+  if (r.claude.error) return `${base} ${r.claude.error}`;
+  return r.claude.sorted > 0 ? `${base} Claude sorted ${plural(r.claude.sorted, "filing")}.` : base;
 }
 
 /** "A, B, C and 2 more" */

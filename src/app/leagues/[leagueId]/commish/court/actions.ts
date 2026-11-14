@@ -15,9 +15,10 @@ import { z } from "zod";
 import { db, type DbOrTx } from "@/db";
 import { cases } from "@/db/schema";
 import { isUuid, plural } from "@/lib/format";
-import { CASE_TYPES, sideLabel, SIDES } from "@/lib/settings";
+import { CASE_TYPES, EVENT_LABELS, sideLabel, SIDES } from "@/lib/settings";
 import { fail, ok, runAction, UserError, type ActionResult } from "@/server/action-result";
 import { checkConnection, courtListenerConfigured, searchDockets, type ClDocket } from "@/server/court/courtlistener";
+import { AI_NOT_CONNECTED_MESSAGE, AiClassifyError, aiConfigured, classifyEntriesWithClaude } from "@/server/court/ai-classify";
 import { autoLinkPoolCases, linkCaseToDocket, syncCase, syncSourceForCase } from "@/server/services/court-sync";
 import { actionLeagueContext, canManagePool } from "@/server/league-context";
 import { addAppearance, createCase, createFirm, createLawyer, getPoolCase, type IndividualPosition } from "@/server/services/pool";
@@ -438,5 +439,30 @@ export async function testConnectionAction(leagueId: string): Promise<ActionResu
     if (!courtListenerConfigured()) return fail(CONNECT_MESSAGE);
     const r = await callCourt("The connection test", () => checkConnection());
     return r.ok ? ok(r.detail || "Connected to CourtListener.") : fail(r.detail || "CourtListener didn't accept the connection.");
+  });
+}
+
+/**
+ * Phase 3: one small Claude request on a made-up docket entry, to confirm
+ * ANTHROPIC_API_KEY works (about a cent). Nothing is saved.
+ */
+export async function testClaudeAction(leagueId: string): Promise<ActionResult> {
+  return runAction(async () => {
+    await poolAccess(leagueId);
+    if (!aiConfigured()) return fail(AI_NOT_CONNECTED_MESSAGE);
+    try {
+      const r = await classifyEntriesWithClaude(
+        { caption: "Example Co. v. Sample Corp.", court: "D. Example", docketNumber: "1:26-cv-00001", caseType: "civil", lawyers: [] },
+        [{ entryId: 1, date: "2026-11-02", text: "ORDER granting 41 Defendant Sample Corp.'s Motion to Dismiss. The complaint is DISMISSED WITH PREJUDICE." }],
+        { timeoutMs: 60_000, maxRetries: 0 },
+      );
+      const v = r.byEntry.get(1);
+      if (!v) return fail("Claude answered, but without a suggestion for the test filing. Try again.");
+      if (v.skip) return ok(`Claude is connected (${r.model}). It suggested skipping the test filing: ${v.note}`);
+      const side = v.side ? ` for the ${sideLabel("civil", v.side).toLowerCase()}` : "";
+      return ok(`Claude is connected (${r.model}). Test filing: "${EVENT_LABELS[v.type]}"${side}, ${v.confidence} confidence.`);
+    } catch (e) {
+      return fail(e instanceof AiClassifyError ? e.message : "Claude didn't answer as expected. Try again in a few minutes.");
+    }
   });
 }

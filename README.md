@@ -17,6 +17,23 @@ Live: https://lawyer-fantasy.vercel.app
   scoring review queue, manual events with source links, finalize/reopen weeks
 - Scouting: projected weekly points and rankings from public court activity
 
+## Court data (Phases 2 and 3)
+
+- A daily sync pulls new activity into the commissioner's review queue as
+  pending suggestions: Supreme Court cases from supremecourt.gov's free docket
+  feed, other federal cases from CourtListener (when a case is linked to a
+  docket). Nothing scores until the commissioner approves it.
+- **Phase 3:** when `ANTHROPIC_API_KEY` is set, Claude (Claude Opus 5.5, low
+  effort, structured output) reads each case's new CourtListener entries and
+  suggests the event type and side with a short neutral reason and a
+  confidence. Refused requests fall back server-side to Anthropic's recommended
+  model (`fallbacks: "default"`); any other failure, or no key, falls back to
+  the keyword rules in `src/lib/court/classify.ts`. At most 10 Claude requests
+  per daily run (roughly a few cents to $1 a day at most). Supreme Court
+  activity always uses the keyword rules.
+- Commissioner tools → Court data shows both connections, with "Test
+  connection" and "Test Claude" buttons.
+
 See `docs/ARCHITECTURE.md` for the domain model, conventions and routes.
 
 ## Setup
@@ -57,5 +74,6 @@ npm run build
 ## Deployment
 
 Vercel (project `lawyer-fantasy`) builds every push. Environment variables:
-`DATABASE_URL` (Neon) and `CRON_SECRET`. `vercel.json` runs `/api/cron/daily`
+`DATABASE_URL` (Neon) and `CRON_SECRET`; optional `COURTLISTENER_TOKEN`
+(CourtListener sync) and `ANTHROPIC_API_KEY` (Claude suggestions). `vercel.json` runs `/api/cron/daily`
 once a day; league pages also catch up lazily on every visit.

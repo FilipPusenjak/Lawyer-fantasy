@@ -67,6 +67,12 @@ export type EventRow = {
   caseCourt: string | null;
   caseDocket: string | null;
   lawyerName: string | null;
+  /** Automatic suggestions: why this type/side was suggested (keyword rule or Claude). */
+  suggestionNote: string | null;
+  /** Phase 3: Claude's confidence ("high" | "medium" | "low"); null for keyword rules. */
+  suggestionConfidence: string | null;
+  /** Phase 3: the Claude model that sorted it; null = keyword rules. */
+  suggestionModel: string | null;
   createdAt: Date;
   reviewedAt: Date | null;
 };
@@ -612,6 +618,9 @@ const eventColumns = {
   caseCourt: cases.court,
   caseDocket: cases.docketNumber,
   lawyerName: lawyers.name,
+  suggestionNote: scoringEvents.suggestionNote,
+  suggestionConfidence: scoringEvents.suggestionConfidence,
+  suggestionModel: scoringEvents.suggestionModel,
   createdAt: scoringEvents.createdAt,
   reviewedAt: scoringEvents.reviewedAt,
 };

@@ -6,10 +6,18 @@ import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { plural } from "@/lib/format";
 import { formatDateTime } from "@/lib/time";
 import { courtListenerConfigured } from "@/server/court/courtlistener";
+import { aiConfigured } from "@/server/court/ai-classify";
 import { canManagePool, getCommissionerContext } from "@/server/league-context";
 import { listLawyerOptions } from "@/server/services/pool";
 import { BackLink } from "../pool/pool-ui";
-import { addCaseFromDocketAction, addLawyerToCaseAction, linkDocketAction, searchCourtAction, testConnectionAction } from "./actions";
+import {
+  addCaseFromDocketAction,
+  addLawyerToCaseAction,
+  linkDocketAction,
+  searchCourtAction,
+  testClaudeAction,
+  testConnectionAction,
+} from "./actions";
 import { poolCourtStats } from "./court-data";
 import { CourtSearch } from "./court-forms";
 import { COVERAGE_NOTE } from "./court-rules";
@@ -24,6 +32,7 @@ export default async function CourtDataPage({ params }: PageProps<"/leagues/[lea
   const poolId = ctx.league.poolId;
   const tz = ctx.settings.schedule.timezone;
   const configured = courtListenerConfigured();
+  const claudeOn = aiConfigured();
   const [stats, lawyers] = await Promise.all([poolCourtStats(db, poolId), configured ? listLawyerOptions(db, poolId) : Promise.resolve([])]);
   const base = `/leagues/${leagueId}/commish`;
 
@@ -112,6 +121,26 @@ export default async function CourtDataPage({ params }: PageProps<"/leagues/[lea
           <p className="text-sm text-muted">Searching, linking and syncing CourtListener dockets need the token described above.</p>
         )}
         <p className="text-xs text-muted">The Supreme Court docket feed doesn&apos;t need a token.</p>
+      </Card>
+
+      <Card className="space-y-3">
+        <CardTitle action={claudeOn ? <Badge tone="pos">Connected</Badge> : <Badge tone="warn">Not connected</Badge>}>Claude suggestions</CardTitle>
+        <p className="text-sm text-muted">
+          {claudeOn
+            ? "Claude reads each new CourtListener filing and suggests the event type and side, with a short reason you can check against the record. You still approve every suggestion."
+            : "Add ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables, then redeploy. Until then, simple keyword rules sort new filings."}
+        </p>
+        {claudeOn ? (
+          <ActionForm action={testClaudeAction.bind(null, leagueId)}>
+            <SubmitButton variant="secondary" className="w-full" pendingText="Asking Claude…">
+              Test Claude
+            </SubmitButton>
+          </ActionForm>
+        ) : null}
+        <p className="text-xs text-muted">
+          At most 10 Claude requests per daily sync, one per case with new filings. Supreme Court activity uses the keyword rules, which handle its
+          standard wording well.
+        </p>
       </Card>
     </Page>
   );

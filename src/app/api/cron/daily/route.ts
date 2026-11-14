@@ -11,7 +11,9 @@ import { runLeagueMaintenance } from "@/server/services/maintenance";
  * trade reviews, …) for every active league so they stay current even when
  * nobody opens the app, then pulls court data (Supreme Court feed +
  * CourtListener) into pending suggestions for the commissioners, auto-linking
- * a few unlinked federal cases to CourtListener dockets first.
+ * a few unlinked federal cases to CourtListener dockets first. When
+ * ANTHROPIC_API_KEY is set, Claude sorts new CourtListener entries (at most 10
+ * requests per run); otherwise the keyword rules do.
  */
 export const dynamic = "force-dynamic";
 /** Vercel Hobby's limit. Court sync paces CourtListener requests (5/min) and stops at COURT_SYNC_BUDGET_MS. */
@@ -73,6 +75,8 @@ export async function GET(request: Request) {
     skipped: number;
     errors: number;
     linked: number;
+    /** Phase 3: docket entries Claude sorted this run. */
+    claudeSorted: number;
     ms: number;
     autoLinked: AutoLinkRun[];
     results: SyncResult[];
@@ -91,6 +95,7 @@ export async function GET(request: Request) {
       skipped: sync.skipped,
       errors: sync.results.filter((r) => r.error).length,
       linked: sync.autoLinked.reduce((n, a) => n + a.linked, 0),
+      claudeSorted: sync.results.reduce((n, r) => n + (r.claude?.sorted ?? 0), 0),
       ms: Date.now() - t0,
       autoLinked: sync.autoLinked,
       results: sync.results,
@@ -104,6 +109,7 @@ export async function GET(request: Request) {
       skipped: 0,
       errors: 0,
       linked: 0,
+      claudeSorted: 0,
       ms: Date.now() - t0,
       autoLinked: [],
       results: [],

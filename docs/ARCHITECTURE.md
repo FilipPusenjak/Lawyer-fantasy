@@ -108,6 +108,23 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
 - **Neutral language**: show case facts neutrally (caption, court, docket
   number, event type, date, source link). No commentary about lawyers.
 
+## Court data and Claude suggestions
+
+- `src/server/services/court-sync.ts` runs the daily sync (cron) and the
+  commissioner's "Sync now". Pure planning (windows, cursors, caps) lives in
+  `src/lib/court/sync-plan.ts`; keyword rules in `src/lib/court/classify.ts`
+  (CourtListener) and `src/lib/court/scotus.ts` (Supreme Court feed).
+- Phase 3: `src/server/court/ai-classify.ts` sends a case's candidate
+  CourtListener entries (up to 25) to Claude Opus 5.5 with the official
+  `@anthropic-ai/sdk` (`beta.messages.parse`, `output_config: { effort: "low",
+  format }`, cached system prompt, `fallbacks: "default"`). Its verdicts replace
+  the keyword rules for the entries it answers; anything else (no key, budget
+  or time used up, refusal, error) falls back to the keyword rules.
+- Every automatic suggestion stores why it was suggested in
+  `scoring_events.suggestion_note`; Claude's also store
+  `suggestion_confidence` and `suggestion_model`. The review queue shows them
+  ("Sorted by Claude"). Suggestions are always pending until approved.
+
 ## Routes
 
 | Route | Purpose |

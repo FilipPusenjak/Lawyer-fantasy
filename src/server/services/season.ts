@@ -61,13 +61,17 @@ export async function startSeason(db: DbOrTx, leagueId: string, now: Date = new 
 
   await scheduleNextWaiverRun(db, leagueId, settings, now);
 
-  // Starting lineups for the first editable week
+  // Starting lineups. Written for week 1 (lineups carry forward), so a draft
+  // that finishes after week 1 already locked still scores from week 1 instead
+  // of leaving every team at 0 for the weeks that have passed. Also written for
+  // the first editable week when that is later, so the row managers edit exists.
   const week = editableWeek(now, leagueClock({ seasonStart: league.seasonStart, settings }));
   const n = starterSlots(settings.roster).length;
   for (const t of leagueTeams) {
     const roster = await getTeamRoster(db, t.id);
     const lineup = autoFillLineup(new Array(n).fill(null), settings.roster, roster);
-    await saveLineup(db, t.id, week, lineup);
+    await saveLineup(db, t.id, 1, lineup);
+    if (week > 1) await saveLineup(db, t.id, week, lineup);
   }
 
   await db.update(leagues).set({ status: "in_season" }).where(eq(leagues.id, leagueId));

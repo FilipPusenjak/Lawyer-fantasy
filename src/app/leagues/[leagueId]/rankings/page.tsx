@@ -19,7 +19,6 @@ import { canManagePool, getLeagueContext } from "@/server/league-context";
 import { countPoolLeagues, getLeagueProjections, type LeagueProjectionRow } from "@/server/services/projections";
 import { applyProjectionRanksAction } from "./actions";
 import {
-  defaultRankFilters,
   draftPositionRanks,
   filterRankRows,
   parseRankFilters,
@@ -111,10 +110,9 @@ function ApplyRanksForm({ leagueId, poolLeagueCount, prominent }: { leagueId: st
 
 export default async function RankingsPage({ params, searchParams }: PageProps<"/leagues/[leagueId]/rankings">) {
   const { leagueId } = await params;
+  const filters = parseRankFilters(await searchParams);
   const ctx = await getLeagueContext(leagueId);
   const { league, team } = ctx;
-  const defaults = defaultRankFilters(league.status);
-  const filters = parseRankFilters(await searchParams, defaults);
   const myTeamId = team?.id ?? null;
   const base = `/leagues/${leagueId}/rankings`;
 
@@ -173,14 +171,14 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
 
       <ChipRow label="Filter by position">
         {(["all", ...POSITIONS] as const).map((p) => (
-          <Chip key={p} href={rankingsHref(base, filters, { position: p }, defaults)} active={filters.position === p}>
+          <Chip key={p} href={rankingsHref(base, filters, { position: p })} active={filters.position === p}>
             {p === "all" ? "All" : POSITION_SHORT[p]}
           </Chip>
         ))}
       </ChipRow>
       <ChipRow label="Filter by status">
         {RANK_STATUS_FILTERS.filter((s) => s !== "mine" || team).map((s) => (
-          <Chip key={s} href={rankingsHref(base, filters, { status: s }, defaults)} active={filters.status === s}>
+          <Chip key={s} href={rankingsHref(base, filters, { status: s })} active={filters.status === s}>
             {RANK_STATUS_LABELS[s]}
           </Chip>
         ))}
@@ -190,7 +188,7 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
         {RANK_SORTS.map((s) => (
           <Link
             key={s}
-            href={rankingsHref(base, filters, { sort: s }, defaults)}
+            href={rankingsHref(base, filters, { sort: s })}
             className={cx("flex min-h-11 items-center font-semibold", filters.sort === s ? "text-brand" : "text-muted")}
             aria-current={filters.sort === s ? "true" : undefined}
           >
@@ -200,8 +198,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
       </div>
       {byDraft ? (
         <p className="text-xs text-muted">
-          Draft rank is the commissioner&apos;s draft order (1 = picked first). The draft room and auto-pick use it. Projections are
-          on the right.
+          Draft rank is the commissioner&apos;s draft order (1 = picked first), set by hand in the player pool. The draft room and
+          auto-pick use it. It doesn&apos;t change with projections, which are on the right.
         </p>
       ) : null}
 
@@ -296,7 +294,7 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
           Showing {shown.length} of {plural(matches.length, "lawyer")}
         </span>
         {matches.length > shown.length ? (
-          <LinkButton href={rankingsHref(base, filters, { limit: filters.limit + RANK_PAGE_STEP }, defaults)} variant="secondary">
+          <LinkButton href={rankingsHref(base, filters, { limit: filters.limit + RANK_PAGE_STEP })} variant="secondary">
             Show more
           </LinkButton>
         ) : null}

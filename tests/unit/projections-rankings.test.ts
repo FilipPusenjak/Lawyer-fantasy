@@ -12,7 +12,6 @@ import {
 } from "@/lib/projections";
 import type { Position } from "@/lib/settings";
 import {
-  defaultRankFilters,
   draftPositionRanks,
   filterRankRows,
   parseRankFilters,
@@ -171,21 +170,12 @@ describe("rankings filters", () => {
     expect(pos.get("z")).toBe(2);
   });
 
-  it("opens on draft rank until the draft is over, then on projections", () => {
-    expect(defaultRankFilters("setup").sort).toBe("draft");
-    expect(defaultRankFilters("drafting").sort).toBe("draft");
-    expect(defaultRankFilters("in_season").sort).toBe("week");
-    expect(defaultRankFilters("playoffs").sort).toBe("week");
-    expect(defaultRankFilters("complete").sort).toBe("week");
-    const pre = defaultRankFilters("setup");
-    expect(parseRankFilters({}, pre).sort).toBe("draft");
-    expect(parseRankFilters({ sort: "week" }, pre).sort).toBe("week");
-    expect(parseRankFilters({ sort: "bogus" }, pre).sort).toBe("draft");
-    // The league's own default is left out of links; the other sorts are kept.
-    expect(rankingsHref(base, pre, {}, pre)).toBe(base);
-    expect(rankingsHref(base, pre, { sort: "week" }, pre)).toBe(`${base}?sort=week`);
-    const inSeason = defaultRankFilters("in_season");
-    expect(rankingsHref(base, inSeason, { sort: "draft" }, inSeason)).toBe(`${base}?sort=draft`);
+  it("opens on projections; draft rank is an explicit sort", () => {
+    expect(parseRankFilters({}).sort).toBe("week");
+    expect(parseRankFilters({ sort: "draft" }).sort).toBe("draft");
+    const f = parseRankFilters({});
+    expect(rankingsHref(base, f, { sort: "draft" })).toBe(`${base}?sort=draft`);
+    expect(rankingsHref(base, { ...f, sort: "draft" }, { sort: "week" })).toBe(base);
   });
 
   it("draftPositionRanks numbers each position in draft order and skips unranked", () => {

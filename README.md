@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lawyer Fantasy
 
-## Getting Started
+A fantasy-football-style league for a high school mock trial club. Teams draft
+real lawyers and law firms and score points from what happens in their public
+court cases. Every scoring event is approved by the commissioner.
 
-First, run the development server:
+Live: https://lawyer-fantasy.vercel.app
+
+## Features (Phase 1)
+
+- Accounts (username + password); only site admins create leagues; members join with an invite code
+- Live snake draft with pick clock, queue, auto-pick and commissioner controls
+- Weekly lineups that lock at a set time; 2-week head-to-head matchups (configurable)
+- Standings with tiebreakers, automatic playoff bracket, league median games for odd team counts
+- Waivers (rolling priority, weekly run), free agents, trades with commissioner review/veto
+- Commissioner tools: settings, members/co-commissioners, player pool (lawyers, firms, cases, CSV import),
+  scoring review queue, manual events with source links, finalize/reopen weeks
+- Scouting: projected weekly points and rankings from public court activity
+
+See `docs/ARCHITECTURE.md` for the domain model, conventions and routes.
+
+## Setup
 
 ```bash
+npm install
+cp .env.example .env.local   # then fill in DATABASE_URL and CRON_SECRET
+npm run db:migrate           # apply the schema
+npm run db:seed              # optional: fictional demo leagues (re-runnable)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Make yourself a site admin (needed to create leagues) after signing up:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run make-admin -- <username>
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To target another database (e.g. production), set `DATABASE_URL` in the
+environment for the command; it overrides `.env.local`.
 
-## Learn More
+## Demo data
 
-To learn more about Next.js, take a look at the following resources:
+`npm run db:seed` creates a fictional pool (170 lawyers, 18 firms, 70 cases),
+a 10-team league in week 7 and a 6-team league ready to draft. All demo logins
+use the password `demo-pass-2026`: `demo_commish` (commissioner of both) and
+`demo_player1` … `demo_player9`. Re-running replaces only demo data.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Checks
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run typecheck
+npm run lint
+npm test          # unit tests (Vitest)
+npm run build
+```
 
-## Deploy on Vercel
+## Deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Vercel (project `lawyer-fantasy`) builds every push. Environment variables:
+`DATABASE_URL` (Neon) and `CRON_SECRET`. `vercel.json` runs `/api/cron/daily`
+once a day; league pages also catch up lazily on every visit.

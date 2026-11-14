@@ -19,6 +19,8 @@ import { canManagePool, getLeagueContext } from "@/server/league-context";
 import { countPoolLeagues, getLeagueProjections, type LeagueProjectionRow } from "@/server/services/projections";
 import { applyProjectionRanksAction } from "./actions";
 import {
+  defaultRankFilters,
+  draftPositionRanks,
   filterRankRows,
   parseRankFilters,
   RANK_PAGE_STEP,
@@ -85,7 +87,7 @@ function ApplyRanksForm({ leagueId, poolLeagueCount, prominent }: { leagueId: st
     <div className="space-y-2 text-sm">
       <p>
         Sets every lawyer&apos;s and firm&apos;s draft rank to their projection rank (1 = highest projected week). Auto-pick in the
-        draft uses these ranks.
+        draft uses these ranks. This replaces any draft ranks set by hand.
       </p>
       <p className="text-muted">
         {poolLeagueCount > 1
@@ -98,7 +100,7 @@ function ApplyRanksForm({ leagueId, poolLeagueCount, prominent }: { leagueId: st
           variant={prominent ? "primary" : "secondary"}
           className="w-full"
           pendingText="Saving…"
-          confirm="Replace the draft rank of every lawyer and firm in this pool with their projection rank?"
+          confirm="Replace the draft rank of every lawyer and firm in this pool with their projection rank? Ranks set by hand will be lost."
         >
           Use projection ranks
         </SubmitButton>
@@ -109,9 +111,10 @@ function ApplyRanksForm({ leagueId, poolLeagueCount, prominent }: { leagueId: st
 
 export default async function RankingsPage({ params, searchParams }: PageProps<"/leagues/[leagueId]/rankings">) {
   const { leagueId } = await params;
-  const filters = parseRankFilters(await searchParams);
   const ctx = await getLeagueContext(leagueId);
   const { league, team } = ctx;
+  const defaults = defaultRankFilters(league.status);
+  const filters = parseRankFilters(await searchParams, defaults);
   const myTeamId = team?.id ?? null;
   const base = `/leagues/${leagueId}/rankings`;
 
@@ -127,6 +130,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
   const matches = filterRankRows(proj.rows, filters, myTeamId);
   const shown = matches.slice(0, filters.limit);
   const byRos = filters.sort === "ros";
+  const byDraft = filters.sort === "draft";
+  const draftPos = byDraft ? draftPositionRanks(proj.rows) : null;
 
   const subtitle = complete
     ? league.status === "complete"
@@ -168,14 +173,14 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
 
       <ChipRow label="Filter by position">
         {(["all", ...POSITIONS] as const).map((p) => (
-          <Chip key={p} href={rankingsHref(base, filters, { position: p })} active={filters.position === p}>
+          <Chip key={p} href={rankingsHref(base, filters, { position: p }, defaults)} active={filters.position === p}>
             {p === "all" ? "All" : POSITION_SHORT[p]}
           </Chip>
         ))}
       </ChipRow>
       <ChipRow label="Filter by status">
         {RANK_STATUS_FILTERS.filter((s) => s !== "mine" || team).map((s) => (
-          <Chip key={s} href={rankingsHref(base, filters, { status: s })} active={filters.status === s}>
+          <Chip key={s} href={rankingsHref(base, filters, { status: s }, defaults)} active={filters.status === s}>
             {RANK_STATUS_LABELS[s]}
           </Chip>
         ))}
@@ -185,7 +190,7 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
         {RANK_SORTS.map((s) => (
           <Link
             key={s}
-            href={rankingsHref(base, filters, { sort: s })}
+            href={rankingsHref(base, filters, { sort: s }, defaults)}
             className={cx("flex min-h-11 items-center font-semibold", filters.sort === s ? "text-brand" : "text-muted")}
             aria-current={filters.sort === s ? "true" : undefined}
           >
@@ -193,6 +198,12 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
           </Link>
         ))}
       </div>
+      {byDraft ? (
+        <p className="text-xs text-muted">
+          Draft rank is the commissioner&apos;s draft order (1 = picked first). The draft room and auto-pick use it. Projections are
+          on the right.
+        </p>
+      ) : null}
 
       <Card className="px-3 py-1">
         {shown.length === 0 ? (
@@ -211,6 +222,7 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
               const mine = r.status.kind === "rostered" && r.status.teamId === myTeamId;
               const affiliation = r.firmName ?? r.organization ?? (r.kind === "firm" ? "Law firm" : null);
               const main = byRos ? r.restOfSeason : r.projectedWeek;
+              const draftPosRank = draftPos?.get(r.lawyerId);
               return (
                 <li
                   key={r.lawyerId}
@@ -218,10 +230,18 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                 >
                   <div className="flex w-12 shrink-0 flex-col items-center gap-1 pt-0.5">
                     <span className="font-display text-lg font-bold leading-none tabular-nums">
-                      <span className="sr-only">Overall rank </span>
-                      {r.overallRank}
+                      <span className="sr-only">{byDraft ? "Draft rank " : "Overall rank "}</span>
+                      {byDraft ? (r.preseasonRank ?? "–") : r.overallRank}
                     </span>
-                    <RankBadge position={r.position} label={r.positionLabel} rank={r.positionRank} />
+                    {byDraft ? (
+                      draftPosRank ? (
+                        <RankBadge position={r.position} label={`${POSITION_SHORT[r.position]}${draftPosRank}`} rank={draftPosRank} />
+                      ) : (
+                        <Badge tone={r.position === "firm" ? "accent" : "brand"}>{POSITION_SHORT[r.position]}</Badge>
+                      )
+                    ) : (
+                      <RankBadge position={r.position} label={r.positionLabel} rank={r.positionRank} />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <Link href={`/leagues/${leagueId}/lawyers/${r.lawyerId}`} className="block truncate font-semibold leading-tight hover:text-brand">
@@ -236,6 +256,13 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                       <span className="text-ink">{activityLabel(r)}</span>
                     </p>
                     <p className="text-xs text-muted">{projectionInputsLine(r, lookback)}</p>
+                    <p className="text-xs text-muted">
+                      {byDraft
+                        ? `Projection rank #${r.overallRank} (${r.positionLabel})`
+                        : r.preseasonRank
+                          ? `Draft rank #${r.preseasonRank}`
+                          : "No draft rank"}
+                    </p>
                   </div>
                   <div className="w-16 shrink-0 text-right">
                     <span className="block font-display text-2xl font-bold leading-none tabular-nums">{fmtProjection(main)}</span>
@@ -260,7 +287,7 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
           Showing {shown.length} of {plural(matches.length, "lawyer")}
         </span>
         {matches.length > shown.length ? (
-          <LinkButton href={rankingsHref(base, filters, { limit: filters.limit + RANK_PAGE_STEP })} variant="secondary">
+          <LinkButton href={rankingsHref(base, filters, { limit: filters.limit + RANK_PAGE_STEP }, defaults)} variant="secondary">
             Show more
           </LinkButton>
         ) : null}

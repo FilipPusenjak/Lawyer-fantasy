@@ -12,6 +12,8 @@ import {
 } from "@/lib/projections";
 import type { Position } from "@/lib/settings";
 import {
+  defaultRankFilters,
+  draftPositionRanks,
   filterRankRows,
   parseRankFilters,
   rankingsHref,
@@ -136,9 +138,9 @@ describe("rankings filters", () => {
 
   it("filters by position and status and sorts", () => {
     const rows = [
-      { lawyerId: "1", name: "A", position: "trial" as const, projectedWeek: 2, restOfSeason: 20, status: { kind: "free_agent" as const } },
-      { lawyerId: "2", name: "B", position: "trial" as const, projectedWeek: 3, restOfSeason: 10, status: { kind: "rostered" as const, teamId: "t1" } },
-      { lawyerId: "3", name: "C", position: "firm" as const, projectedWeek: 1, restOfSeason: 30, status: { kind: "waivers" as const } },
+      { lawyerId: "1", name: "A", position: "trial" as const, projectedWeek: 2, restOfSeason: 20, preseasonRank: 5, status: { kind: "free_agent" as const } },
+      { lawyerId: "2", name: "B", position: "trial" as const, projectedWeek: 3, restOfSeason: 10, preseasonRank: null, status: { kind: "rostered" as const, teamId: "t1" } },
+      { lawyerId: "3", name: "C", position: "firm" as const, projectedWeek: 1, restOfSeason: 30, preseasonRank: 2, status: { kind: "waivers" as const } },
     ];
     const f = parseRankFilters({});
     expect(filterRankRows(rows, f, "t1").map((r) => r.lawyerId)).toEqual(["2", "1", "3"]);
@@ -147,5 +149,42 @@ describe("rankings filters", () => {
     expect(filterRankRows(rows, { ...f, status: "mine" }, "t1").map((r) => r.lawyerId)).toEqual(["2"]);
     expect(filterRankRows(rows, { ...f, status: "mine" }, null)).toEqual([]);
     expect(filterRankRows(rows, { ...f, position: "trial" }, null).map((r) => r.lawyerId)).toEqual(["2", "1"]);
+    // Draft rank: lowest number first, unranked last.
+    expect(filterRankRows(rows, { ...f, sort: "draft" }, null).map((r) => r.lawyerId)).toEqual(["3", "1", "2"]);
+  });
+
+  it("opens on draft rank until the draft is over, then on projections", () => {
+    expect(defaultRankFilters("setup").sort).toBe("draft");
+    expect(defaultRankFilters("drafting").sort).toBe("draft");
+    expect(defaultRankFilters("in_season").sort).toBe("week");
+    expect(defaultRankFilters("playoffs").sort).toBe("week");
+    expect(defaultRankFilters("complete").sort).toBe("week");
+    const pre = defaultRankFilters("setup");
+    expect(parseRankFilters({}, pre).sort).toBe("draft");
+    expect(parseRankFilters({ sort: "week" }, pre).sort).toBe("week");
+    expect(parseRankFilters({ sort: "bogus" }, pre).sort).toBe("draft");
+    // The league's own default is left out of links; the other sorts are kept.
+    expect(rankingsHref(base, pre, {}, pre)).toBe(base);
+    expect(rankingsHref(base, pre, { sort: "week" }, pre)).toBe(`${base}?sort=week`);
+    const inSeason = defaultRankFilters("in_season");
+    expect(rankingsHref(base, inSeason, { sort: "draft" }, inSeason)).toBe(`${base}?sort=draft`);
+  });
+
+  it("draftPositionRanks numbers each position in draft order and skips unranked", () => {
+    const row = (lawyerId: string, position: Position, preseasonRank: number | null) => ({
+      lawyerId,
+      name: lawyerId,
+      position,
+      projectedWeek: 1,
+      restOfSeason: 10,
+      preseasonRank,
+      status: { kind: "free_agent" as const },
+    });
+    const ranks = draftPositionRanks([row("ifrah", "defense", 3), row("steel", "defense", 18), row("klein", "defense", 17), row("x", "trial", 1), row("u", "defense", null)]);
+    expect(ranks.get("ifrah")).toBe(1);
+    expect(ranks.get("klein")).toBe(2);
+    expect(ranks.get("steel")).toBe(3);
+    expect(ranks.get("x")).toBe(1);
+    expect(ranks.has("u")).toBe(false);
   });
 });

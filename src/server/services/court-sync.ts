@@ -71,6 +71,8 @@ const ACTIVE_LEAGUE_STATUSES = ["drafting", "in_season", "playoffs"] as const;
 /** CourtListener free tier: requests per rolling minute. */
 const CL_PER_MINUTE = 5;
 const CL_PAGES_PER_CASE = 2;
+/** Unlinked federal cases the daily run tries to auto-link per pool. */
+const AUTO_LINK_PER_POOL = 5;
 const FETCH_TIMEOUT_MS = 20_000;
 
 /** "25-159" when the case is a Supreme Court case with a docket number in that form, else null. */
@@ -160,7 +162,7 @@ function errorText(e: unknown): string {
   return "Sync failed unexpectedly. Will retry on the next sync.";
 }
 
-async function syncScotus(db: DbOrTx, c: Case, docket: string, now: Date): Promise<Internal> {
+async function syncScotus(db: DbOrTx, c: Case, docket: string, now: Date, notBefore: string | null): Promise<Internal> {
   const base: SyncResult = { caseId: c.id, caption: c.caption, source: "scotus", newEntries: 0, suggestions: 0 };
   try {
     const feed = await fetchScotusDocket(docket);
@@ -187,6 +189,7 @@ async function syncScotus(db: DbOrTx, c: Case, docket: string, now: Date): Promi
       respondentTitle: feed.respondentTitle,
       caseLawyers: caseIndividuals,
       poolLawyers: poolIndividuals,
+      notBefore,
     });
     const suggestions = await insertPlanned(db, c, plan.events);
     await db.update(cases).set({ syncedAt: now, syncCursor: plan.nextCursor, syncError: null }).where(eq(cases.id, c.id));
@@ -207,7 +210,7 @@ function knownDocketUrl(c: Case): string | null {
   return m && Number(m[1]) === id ? `${COURTLISTENER_SITE}/docket/${id}/${m[2] || "docket"}/` : null;
 }
 
-async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: number): Promise<Internal> {
+async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: number, notBefore: string | null): Promise<Internal> {
   const base: SyncResult = { caseId: c.id, caption: c.caption, source: "courtlistener", newEntries: 0, suggestions: 0 };
   const docketId = c.courtlistenerDocketId;
   if (!docketId) return { result: { ...base, error: "This case isn't linked to a CourtListener docket." }, requests: 0, rateLimited: false };
@@ -229,6 +232,7 @@ async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: numbe
       caseType: c.caseType,
       caption: c.caption,
       attorneys,
+      notBefore,
     });
     const suggestions = await insertPlanned(db, c, plan.events);
     await db
@@ -251,10 +255,10 @@ async function syncCourtListener(db: DbOrTx, c: Case, now: Date, maxPages: numbe
   }
 }
 
-async function syncLoaded(db: DbOrTx, c: Case, now: Date, maxPages = CL_PAGES_PER_CASE): Promise<Internal> {
+async function syncLoaded(db: DbOrTx, c: Case, now: Date, notBefore: string | null, maxPages = CL_PAGES_PER_CASE): Promise<Internal> {
   const docket = scotusDocketFromCase(c);
-  if (docket) return syncScotus(db, c, docket, now);
-  if (c.courtlistenerDocketId) return syncCourtListener(db, c, now, maxPages);
+  if (docket) return syncScotus(db, c, docket, now, notBefore);
+  if (c.courtlistenerDocketId) return syncCourtListener(db, c, now, maxPages, notBefore);
   return {
     result: {
       caseId: c.id,
@@ -274,6 +278,24 @@ async function syncLoaded(db: DbOrTx, c: Case, now: Date, maxPages = CL_PAGES_PE
 
 export const DEMO_POOL_MESSAGE = "Demo pool cases are fictional, so they don't sync court data.";
 
+/** Leagues whose pools sync (a pool in "setup" syncs too, so cursors are current when the season starts). */
+const SYNC_LEAGUE_STATUSES = ["setup", ...ACTIVE_LEAGUE_STATUSES] as const;
+
+/**
+ * Per pool: the earliest season start (YYYY-MM-DD) among its leagues that are
+ * not complete. Activity before it could never score in any of them, so it is
+ * consumed without suggestions. Demo pools are left out.
+ */
+async function poolFloors(db: DbOrTx, poolId?: string): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ poolId: leagues.poolId, start: sql<string>`min(${leagues.seasonStart})::text` })
+    .from(leagues)
+    .innerJoin(pools, eq(pools.id, leagues.poolId))
+    .where(and(inArray(leagues.status, [...SYNC_LEAGUE_STATUSES]), eq(pools.isDemo, false), poolId ? eq(leagues.poolId, poolId) : undefined))
+    .groupBy(leagues.poolId);
+  return new Map(rows.map((r) => [r.poolId, r.start]));
+}
+
 /** Pull new activity for one case and create pending suggestions. */
 export async function syncCase(db: DbOrTx, caseId: string, now: Date = new Date()): Promise<SyncResult> {
   const [row] = await db.select({ c: cases, isDemo: pools.isDemo }).from(cases).innerJoin(pools, eq(pools.id, cases.poolId)).where(eq(cases.id, caseId));
@@ -283,7 +305,8 @@ export async function syncCase(db: DbOrTx, caseId: string, now: Date = new Date(
     const source = syncSourceForCase(c) ?? (c.caseType === "supreme_court" ? "scotus" : "courtlistener");
     return { caseId: c.id, caption: c.caption, source, newEntries: 0, suggestions: 0, error: DEMO_POOL_MESSAGE };
   }
-  return (await syncLoaded(db, c, now)).result;
+  const floor = (await poolFloors(db, c.poolId)).get(c.poolId) ?? null;
+  return (await syncLoaded(db, c, now, floor)).result;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,81 +337,117 @@ export class RateWindow {
   }
 }
 
+/** Shared CourtListener budget for one run: request cap, 5/min pacing, deadline. */
+type Budget = { maxCalls: number; calls: number; window: RateWindow; deadline: number; stopped: boolean };
+
+/** Wait until up to `want` requests fit; returns how many may be made now (0 = stop CourtListener work). */
+async function takeBudget(b: Budget, want: number): Promise<number> {
+  const n = Math.min(want, b.maxCalls - b.calls);
+  if (b.stopped || n <= 0 || Date.now() >= b.deadline) return 0;
+  const wait = b.window.waitFor(n);
+  if (wait > 0) {
+    if (Date.now() + wait + FETCH_TIMEOUT_MS * n >= b.deadline) {
+      b.stopped = true;
+      return 0;
+    }
+    await sleep(wait);
+  }
+  return n;
+}
+
+function spend(b: Budget, n: number): void {
+  b.calls += n;
+  b.window.record(n);
+}
+
+export type AutoLinkRun = { poolId: string; linked: number; notFound: number; remaining: number; error?: string };
+
 /**
  * Daily run (cron): sync every active case in every pool used by a league that
- * is drafting/in season/in playoffs (demo pools excluded). Supreme Court cases all sync; CourtListener
- * cases are synced least-recently-synced first, stopping at `maxCourtListenerCalls`
- * API requests or `deadlineMs` (epoch ms), so a run fits the free quota and
- * Vercel's function time limit.
+ * is drafting/in season/in playoffs — or still in setup — (demo pools excluded).
+ * Supreme Court cases all sync; CourtListener cases are synced
+ * least-recently-synced first, stopping at `maxCourtListenerCalls` API requests
+ * or `deadlineMs` (epoch ms), so a run fits the free quota and Vercel's
+ * function time limit.
+ *
+ * Also (additions): first auto-links up to `autoLinkPerPool` (default 5)
+ * unlinked federal cases per pool, using at most half of the request budget;
+ * activity dated before the earliest season start of a pool's leagues only
+ * moves cursors (no suggestions); requests are paced at 5 per minute and a 429
+ * stops CourtListener work for the run.
  */
 export async function runCourtSync(
   db: DbOrTx,
   now: Date = new Date(),
-  opts: { maxCourtListenerCalls?: number; deadlineMs?: number } = {},
-): Promise<{ results: SyncResult[]; skipped: number }> {
-  const maxCalls = Math.max(0, opts.maxCourtListenerCalls ?? 20);
-  const deadline = opts.deadlineMs ?? Number.POSITIVE_INFINITY;
-  const activePools = await db
-    .selectDistinct({ poolId: leagues.poolId })
-    .from(leagues)
-    .innerJoin(pools, eq(pools.id, leagues.poolId))
-    .where(and(inArray(leagues.status, [...ACTIVE_LEAGUE_STATUSES]), eq(pools.isDemo, false)));
-  if (activePools.length === 0) return { results: [], skipped: 0 };
+  opts: { maxCourtListenerCalls?: number; deadlineMs?: number; autoLinkPerPool?: number } = {},
+): Promise<{ results: SyncResult[]; skipped: number; autoLinked: AutoLinkRun[] }> {
+  const budget: Budget = {
+    maxCalls: Math.max(0, opts.maxCourtListenerCalls ?? 20),
+    calls: 0,
+    window: new RateWindow(CL_PER_MINUTE),
+    deadline: opts.deadlineMs ?? Number.POSITIVE_INFINITY,
+    stopped: false,
+  };
+  const floors = await poolFloors(db);
+  const poolIds = [...floors.keys()];
+  if (poolIds.length === 0) return { results: [], skipped: 0, autoLinked: [] };
+  const configured = courtListenerConfigured();
+
+  // 1. Auto-link a few unlinked federal cases per pool (half the budget at most).
+  const autoLinked: AutoLinkRun[] = [];
+  const perPool = Math.max(0, Math.floor(opts.autoLinkPerPool ?? AUTO_LINK_PER_POOL));
+  const linkCap = Math.floor(budget.maxCalls / 2);
+  if (configured && perPool > 0) {
+    for (const poolId of poolIds) {
+      const left = linkCap - budget.calls;
+      if (left <= 0 || budget.stopped || Date.now() >= budget.deadline) break;
+      const run = await autoLinkInternal(db, poolId, {
+        max: Math.min(perPool, left),
+        throwOnFirstError: false,
+        before: async () => (await takeBudget(budget, 1)) === 1,
+        after: () => spend(budget, 1),
+      });
+      if (run.stopRun) budget.stopped = true;
+      if (run.linked.length || run.notFound.length || run.error) {
+        autoLinked.push({ poolId, linked: run.linked.length, notFound: run.notFound.length, remaining: run.remaining, error: run.error });
+      }
+    }
+  }
+
+  // 2. Sync (cases loaded after linking, so newly linked cases get their first sync).
   const rows = await db
     .select()
     .from(cases)
-    .where(
-      and(
-        inArray(
-          cases.poolId,
-          activePools.map((p) => p.poolId),
-        ),
-        eq(cases.status, "active"),
-      ),
-    )
+    .where(and(inArray(cases.poolId, poolIds), eq(cases.status, "active")))
     .orderBy(sql`${cases.syncedAt} asc nulls first`, asc(cases.createdAt), asc(cases.id));
-
   const scotus = rows.filter((c) => syncSourceForCase(c) === "scotus");
   const linked = rows.filter((c) => syncSourceForCase(c) === "courtlistener");
   const results: SyncResult[] = [];
   let skipped = 0;
 
   for (const [i, c] of scotus.entries()) {
-    if (Date.now() >= deadline) {
+    if (Date.now() >= budget.deadline) {
       skipped++;
       continue;
     }
     if (i > 0) await sleep(250); // be polite to supremecourt.gov
-    results.push((await syncLoaded(db, c, now)).result);
+    results.push((await syncLoaded(db, c, now, floors.get(c.poolId) ?? null)).result);
   }
 
-  if (!courtListenerConfigured()) return { results, skipped: skipped + linked.length };
+  if (!configured) return { results, skipped: skipped + linked.length, autoLinked };
 
-  const window = new RateWindow(CL_PER_MINUTE);
-  let calls = 0;
-  let stopped = false;
   for (const c of linked) {
-    const pages = Math.min(CL_PAGES_PER_CASE, maxCalls - calls);
-    if (stopped || pages <= 0 || Date.now() >= deadline) {
+    const pages = await takeBudget(budget, CL_PAGES_PER_CASE);
+    if (pages <= 0) {
       skipped++;
       continue;
     }
-    const wait = window.waitFor(pages);
-    if (wait > 0) {
-      if (Date.now() + wait + FETCH_TIMEOUT_MS * pages >= deadline) {
-        stopped = true;
-        skipped++;
-        continue;
-      }
-      await sleep(wait);
-    }
-    const r = await syncLoaded(db, c, now, pages);
-    calls += r.requests;
-    window.record(r.requests);
+    const r = await syncLoaded(db, c, now, floors.get(c.poolId) ?? null, pages);
+    spend(budget, r.requests);
     results.push(r.result);
-    if (r.rateLimited) stopped = true; // respect 429: no more CourtListener work this run
+    if (r.rateLimited) budget.stopped = true; // respect 429: no more CourtListener work this run
   }
-  return { results, skipped };
+  return { results, skipped, autoLinked };
 }
 
 // ---------------------------------------------------------------------------
@@ -463,26 +522,18 @@ export function matchingDockets(c: { docketNumber: string; court: string }, resu
   });
 }
 
+type AutoLinkResult = { linked: { caseId: string; docketId: number }[]; notFound: string[]; remaining: number };
+
 /**
- * Try to link unlinked federal (non-SCOTUS) pool cases to CourtListener dockets
- * by docket number (+ court when known). Uses at most `max` API requests.
- *
- * Links only an unambiguous match. Cases without one are marked
- * (cases.syncError = AUTO_LINK_NOT_FOUND) and skipped by later runs (link them
- * by hand). `notFound` lists their captions; `remaining` counts unlinked,
- * unmarked cases not tried yet (max reached or rate limit). Throws UserError
- * for demo pools, and
- * CourtListenerError when not connected, or when the very first request fails.
+ * Auto-link with optional budget hooks (the daily run paces requests and
+ * shares its request cap). `before` returning false stops before the next
+ * request; `after` is called once per request made.
  */
-export async function autoLinkPoolCases(
+async function autoLinkInternal(
   db: DbOrTx,
   poolId: string,
-  opts: { max?: number } = {},
-): Promise<{ linked: { caseId: string; docketId: number }[]; notFound: string[]; remaining: number }> {
-  const max = Math.max(0, Math.floor(opts.max ?? CL_PER_MINUTE));
-  const [pool] = await db.select({ isDemo: pools.isDemo }).from(pools).where(eq(pools.id, poolId));
-  if (!pool) throw new UserError("That player pool doesn't exist.");
-  if (pool.isDemo) throw new UserError(DEMO_POOL_MESSAGE);
+  opts: { max: number; throwOnFirstError: boolean; before?: () => Promise<boolean>; after?: () => void },
+): Promise<AutoLinkResult & { stopRun: boolean; error?: string }> {
   const candidates = await db
     .select({ id: cases.id, caption: cases.caption, court: cases.court, docketNumber: cases.docketNumber })
     .from(cases)
@@ -497,7 +548,10 @@ export async function autoLinkPoolCases(
       ),
     )
     .orderBy(asc(cases.createdAt), asc(cases.id));
-  if (candidates.length > 0 && max > 0 && !courtListenerConfigured()) throw new CourtListenerError(NOT_CONNECTED_MESSAGE, 401);
+  if (candidates.length > 0 && opts.max > 0 && !courtListenerConfigured()) {
+    if (opts.throwOnFirstError) throw new CourtListenerError(NOT_CONNECTED_MESSAGE, 401);
+    return { linked: [], notFound: [], remaining: candidates.length, stopRun: true, error: NOT_CONNECTED_MESSAGE };
+  }
 
   const taken = new Set(
     (
@@ -510,8 +564,15 @@ export async function autoLinkPoolCases(
   const linked: { caseId: string; docketId: number }[] = [];
   const notFound: string[] = [];
   let tried = 0;
+  let stopRun = false;
+  let error: string | undefined;
+  const markNotFound = async (c: { id: string; caption: string }) => {
+    notFound.push(c.caption);
+    await db.update(cases).set({ syncError: AUTO_LINK_NOT_FOUND }).where(eq(cases.id, c.id));
+  };
   for (const c of candidates) {
-    if (tried >= max) break;
+    if (tried >= opts.max) break;
+    if (opts.before && !(await opts.before())) break;
     const docketNumber = c.docketNumber!.trim();
     const courtId = courtIdFromText(c.court);
     let results: ClDocket[];
@@ -522,17 +583,21 @@ export async function autoLinkPoolCases(
         caseName: courtId ? undefined : captionKeywords(c.caption),
       });
     } catch (e) {
+      opts.after?.();
       const status = e instanceof CourtListenerError ? e.status : 0;
       if (status === 400) {
         // CourtListener rejected this case's query: it can't be auto-linked.
         tried++;
-        notFound.push(c.caption);
-        await db.update(cases).set({ syncError: AUTO_LINK_NOT_FOUND }).where(eq(cases.id, c.id));
+        await markNotFound(c);
         continue;
       }
-      if (tried === 0) throw e;
-      break; // rate limit or outage: keep what was done, the rest stays in `remaining`
+      if (opts.throwOnFirstError && tried === 0) throw e;
+      // Rate limit, bad token or outage: keep what was done; the rest stays in `remaining`.
+      stopRun = status === 429 || status === 401 || status === 403;
+      error = errorText(e);
+      break;
     }
+    opts.after?.();
     tried++;
     const matches = matchingDockets({ docketNumber, court: c.court }, results).filter((r) => !taken.has(r.docketId));
     if (matches.length === 1) {
@@ -544,9 +609,32 @@ export async function autoLinkPoolCases(
       taken.add(docketId);
       linked.push({ caseId: c.id, docketId });
     } else {
-      notFound.push(c.caption);
-      await db.update(cases).set({ syncError: AUTO_LINK_NOT_FOUND }).where(eq(cases.id, c.id));
+      await markNotFound(c);
     }
   }
-  return { linked, notFound, remaining: candidates.length - tried };
+  return { linked, notFound, remaining: candidates.length - tried, stopRun, error };
+}
+
+/**
+ * Try to link unlinked federal (non-SCOTUS) pool cases to CourtListener dockets
+ * by docket number (+ court when known). Uses at most `max` API requests.
+ *
+ * Links only an unambiguous match. Cases without one are marked
+ * (cases.syncError = AUTO_LINK_NOT_FOUND) and skipped by later runs (link them
+ * by hand; linkCaseToDocket clears the mark). `notFound` lists their captions;
+ * `remaining` counts unlinked, unmarked cases not tried yet (max reached or
+ * rate limit). Throws UserError for demo pools, and CourtListenerError when
+ * not connected or when the very first request fails.
+ */
+export async function autoLinkPoolCases(
+  db: DbOrTx,
+  poolId: string,
+  opts: { max?: number } = {},
+): Promise<{ linked: { caseId: string; docketId: number }[]; notFound: string[]; remaining: number }> {
+  const max = Math.max(0, Math.floor(opts.max ?? CL_PER_MINUTE));
+  const [pool] = await db.select({ isDemo: pools.isDemo }).from(pools).where(eq(pools.id, poolId));
+  if (!pool) throw new UserError("That player pool doesn't exist.");
+  if (pool.isDemo) throw new UserError(DEMO_POOL_MESSAGE);
+  const { linked, notFound, remaining } = await autoLinkInternal(db, poolId, { max, throwOnFirstError: true });
+  return { linked, notFound, remaining };
 }

@@ -43,9 +43,14 @@ export function daysAgo(now: Date, days: number): string {
   return new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10);
 }
 
-/** Oldest date that can still become a suggestion. */
-export function suggestionCutoff(now: Date, firstSync: boolean): string {
-  return daysAgo(now, firstSync ? FIRST_SYNC_DAYS : STALE_DAYS);
+/**
+ * Oldest date that can still become a suggestion: 14 days back on a first
+ * sync, 30 later, and never before `notBefore` (the earliest season start of
+ * the leagues using the pool — older activity could never score).
+ */
+export function suggestionCutoff(now: Date, firstSync: boolean, notBefore?: string | null): string {
+  const window = daysAgo(now, firstSync ? FIRST_SYNC_DAYS : STALE_DAYS);
+  return notBefore && notBefore > window ? notBefore : window;
 }
 
 const SOURCE_URL_MAX = 500;
@@ -67,6 +72,8 @@ export type ScotusPlanInput = {
   caseLawyers: NamedLawyer[];
   /** Other individual lawyers in the pool (exact, unique name match only). */
   poolLawyers: NamedLawyer[];
+  /** YYYY-MM-DD: older proceedings are consumed without suggestions (see suggestionCutoff). */
+  notBefore?: string | null;
   maxSuggestions?: number;
 };
 
@@ -83,7 +90,7 @@ export function planScotus(input: ScotusPlanInput): Plan {
   const firstSync = !Number.isFinite(parsed);
   const total = input.proceedings.length;
   const start = firstSync ? 0 : Math.min(Math.max(parsed, 0), total);
-  const cutoff = suggestionCutoff(input.now, firstSync);
+  const cutoff = suggestionCutoff(input.now, firstSync, input.notBefore);
   const events: PlannedEvent[] = [];
   let i = start;
   let capped = false;
@@ -147,6 +154,8 @@ export type ClPlanInput = {
   caption: string;
   /** Lawyer names per side on this case (for "(Last, First)" filing attorney hints). */
   attorneys?: Partial<PartyNames>;
+  /** YYYY-MM-DD: older entries are consumed without suggestions (see suggestionCutoff). */
+  notBefore?: string | null;
   maxSuggestions?: number;
 };
 
@@ -158,7 +167,7 @@ export type ClPlanInput = {
  */
 export function planCourtListener(input: ClPlanInput): Plan {
   const max = input.maxSuggestions ?? MAX_SUGGESTIONS_PER_CASE;
-  const cutoff = suggestionCutoff(input.now, input.cursor === null);
+  const cutoff = suggestionCutoff(input.now, input.cursor === null, input.notBefore);
   const opts = { caseType: input.caseType, parties: partiesFromCaption(input.caption), attorneys: input.attorneys };
   const events: PlannedEvent[] = [];
   let nextCursor = input.cursor;

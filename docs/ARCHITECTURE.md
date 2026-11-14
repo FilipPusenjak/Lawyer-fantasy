@@ -26,7 +26,7 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
 ## Domain model
 
 - **Users** sign up with username + password (email optional). Sessions are DB
-  rows; cookie `lf_session`. Site admins (`users.is_admin` or `ADMIN_USERNAMES`)
+  rows; cookie `lf_session`. Site admins (`users.is_admin`, granted with `npm run make-admin -- <username>`)
   are the only ones who can **create leagues**. Anyone with an account can join a
   league with its invite code.
 - **Pools** hold the "legal world": `lawyers` (kind `lawyer` or `firm`, one

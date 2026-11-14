@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { ok, runAction, UserError, type ActionResult } from "@/server/action-result";
-import { adminUsernames } from "@/server/auth/admin";
 import { hashPassword } from "@/server/auth/password";
 import { createSession } from "@/server/auth/session";
 import { firstIssue, safeNextPath, signupSchema } from "@/app/account/rules";
@@ -31,7 +30,7 @@ export async function signupAction(_prev: unknown, formData: FormData): Promise<
     // The unique index settles races between two sign-ups for the same name.
     const [created] = await db
       .insert(users)
-      .values({ username, displayName, passwordHash, email, isAdmin: adminUsernames().includes(username) })
+      .values({ username, displayName, passwordHash, email })
       .onConflictDoNothing({ target: users.username })
       .returning({ id: users.id });
     if (!created) throw new UserError(TAKEN);

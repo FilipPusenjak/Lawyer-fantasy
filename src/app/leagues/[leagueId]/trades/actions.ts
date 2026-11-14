@@ -135,11 +135,11 @@ export async function reviewTradeAction(_prev: unknown, formData: FormData): Pro
     if (reasonRaw.trim().length > TRADE_MESSAGE_MAX) throw new UserError(`Keep the reason to ${TRADE_MESSAGE_MAX} characters or less.`);
     const ctx = await actionLeagueContext(leagueId, { commissioner: true });
     if (intent === "veto") {
-      await vetoTrade(db, { leagueId, tradeId, userId: ctx.user.id, reason: reasonRaw });
+      await vetoTrade(db, { leagueId, tradeId, userId: ctx.user.id, actingTeamId: ctx.team?.id ?? null, reason: reasonRaw });
       revalidateLeague(leagueId);
       return ok("Trade vetoed.");
     }
-    const outcome = await approveTradeNow(db, { leagueId, tradeId, userId: ctx.user.id });
+    const outcome = await approveTradeNow(db, { leagueId, tradeId, userId: ctx.user.id, actingTeamId: ctx.team?.id ?? null });
     revalidateLeague(leagueId);
     return outcomeResult(outcome, ctx.settings.schedule.timezone, "Trade approved.");
   });

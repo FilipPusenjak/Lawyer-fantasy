@@ -136,8 +136,9 @@ export function allowedTradeActions(trade: TradeParties, viewer: TradeViewer): T
     accept: trade.status === "proposed" && isRecipient,
     reject: trade.status === "proposed" && isRecipient,
     cancel: (trade.status === "proposed" || trade.status === "accepted") && isProposer,
-    veto: trade.status === "accepted" && viewer.isCommissioner,
-    approve: trade.status === "accepted" && viewer.isCommissioner,
+    // Commissioners can't review trades their own team is part of.
+    veto: trade.status === "accepted" && viewer.isCommissioner && !isRecipient && !isProposer,
+    approve: trade.status === "accepted" && viewer.isCommissioner && !isRecipient && !isProposer,
   };
 }
 
@@ -159,11 +160,14 @@ export function describeTradeForTeam(args: { teamName: string; otherTeamName: st
 
 type TradeLeague = { id: string; status: LeagueStatus; seasonStart: string; settings: LeagueSettings };
 
-async function loadTradeLeague(db: DbOrTx, leagueId: string): Promise<TradeLeague> {
-  const [l] = await db
+async function loadTradeLeague(db: DbOrTx, leagueId: string, opts?: { lock?: boolean }): Promise<TradeLeague> {
+  const q = db
     .select({ id: leagues.id, status: leagues.status, seasonStart: leagues.seasonStart, settings: leagues.settings })
     .from(leagues)
     .where(eq(leagues.id, leagueId));
+  // Locking the league row serializes roster changes with add/drop, waivers and
+  // lineup saves (they all lock it). Order: trade advisory lock → trade row → league row.
+  const [l] = opts?.lock ? await q.for("update") : await q;
   if (!l) throw new UserError("League not found.");
   return { ...l, settings: parseLeagueSettings(l.settings) };
 }
@@ -463,6 +467,9 @@ export async function cancelTrade(db: DbOrTx, input: TradeActorInput): Promise<v
     const trade = await lockTrade(tx, input.tradeId, input.leagueId);
     if (trade.proposerTeamId !== input.teamId) throw new UserError("Only the team that made this offer can cancel it.");
     if (trade.status !== "proposed" && trade.status !== "accepted") throw new UserError("This trade can't be cancelled anymore.");
+    if (trade.status === "accepted" && trade.reviewEndsAt && trade.reviewEndsAt.getTime() <= now.getTime()) {
+      throw new UserError("The review window has ended, so this trade is going through.");
+    }
     await tx
       .update(trades)
       .set({ status: "cancelled", resolvedAt: now, resolvedBy: input.userId })
@@ -475,8 +482,21 @@ export type CommissionerTradeInput = {
   tradeId: string;
   /** The commissioner (the caller must verify the role). */
   userId: string;
+  /** The commissioner's own team in this league, if any. Commissioners can't review trades they're part of. */
+  actingTeamId?: string | null;
   now?: Date;
 };
+
+/** Commissioner review checks shared by veto and approve-now. */
+function assertCanReview(trade: Trade, input: CommissionerTradeInput, now: Date, verb: "veto" | "approve"): void {
+  if (trade.status !== "accepted") throw new UserError(verb === "veto" ? "Only trades in review can be vetoed." : "Only trades in review can be approved.");
+  if (input.actingTeamId && (input.actingTeamId === trade.proposerTeamId || input.actingTeamId === trade.recipientTeamId)) {
+    throw new UserError("You're part of this trade, so another commissioner has to review it. Otherwise it goes through when the review window ends.");
+  }
+  if (verb === "veto" && trade.reviewEndsAt && trade.reviewEndsAt.getTime() <= now.getTime()) {
+    throw new UserError("The review window has ended, so this trade is going through.");
+  }
+}
 
 /** Commissioner vetoes an accepted trade during its review window. */
 export async function vetoTrade(db: DbOrTx, input: CommissionerTradeInput & { reason?: string | null }): Promise<void> {
@@ -485,7 +505,7 @@ export async function vetoTrade(db: DbOrTx, input: CommissionerTradeInput & { re
   if (reason && reason.length > TRADE_MESSAGE_MAX) throw new UserError(`Keep the reason to ${TRADE_MESSAGE_MAX} characters or less.`);
   await db.transaction(async (tx) => {
     const trade = await lockTrade(tx, input.tradeId, input.leagueId);
-    if (trade.status !== "accepted") throw new UserError("Only trades in review can be vetoed.");
+    assertCanReview(trade, input, now, "veto");
     await tx
       .update(trades)
       .set({ status: "vetoed", resolvedAt: now, resolvedBy: input.userId, failReason: reason })
@@ -498,7 +518,7 @@ export async function approveTradeNow(db: DbOrTx, input: CommissionerTradeInput)
   const now = input.now ?? new Date();
   return db.transaction(async (tx) => {
     const trade = await lockTrade(tx, input.tradeId, input.leagueId);
-    if (trade.status !== "accepted") throw new UserError("Only trades in review can be approved.");
+    assertCanReview(trade, input, now, "approve");
     const res = await executeTrade(tx, trade.id, now, { resolvedBy: input.userId });
     return { status: res.status, reviewEndsAt: trade.reviewEndsAt, failReason: res.failReason };
   });
@@ -524,7 +544,7 @@ export async function executeTrade(
   return db.transaction(async (tx) => {
     const trade = await lockTrade(tx, tradeId);
     if (trade.status !== "accepted") return { status: trade.status, failReason: trade.failReason };
-    const league = await loadTradeLeague(tx, trade.leagueId);
+    const league = await loadTradeLeague(tx, trade.leagueId, { lock: true });
     const items = await loadItems(tx, trade.id);
 
     const check = await checkStoredTrade(tx, league, trade, items);

@@ -12,7 +12,8 @@
     "test:e2e": "playwright test --trace off",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx --env-file=.env.local scripts/seed.ts"
+    "db:seed": "tsx --env-file=.env.local scripts/seed.ts",
+    "make-admin": "tsx --env-file=.env.local scripts/make-admin.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.1",

@@ -370,14 +370,13 @@ export async function setTeamLineup(
   args: { leagueId: string; teamId: string; week: number; starters: (string | null)[]; now?: Date },
 ): Promise<void> {
   const now = args.now ?? new Date();
-  const [league] = await db
-    .select({ status: leagues.status, seasonStart: leagues.seasonStart, settings: leagues.settings })
-    .from(leagues)
-    .where(eq(leagues.id, args.leagueId));
-  if (!league) throw new UserError("League not found.");
+  // Serialize with drops, adds, waivers and trades (they all lock the league
+  // row) so a lawyer who is leaving the roster can't be saved as a starter.
+  return db.transaction(async (tx) => {
+  const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: false });
   if (league.status === "setup" || league.status === "drafting") throw new UserError("Lineups open after the draft.");
   if (league.status === "complete") throw new UserError("The season is over, so lineups are locked.");
-  const settings = parseLeagueSettings(league.settings);
+  const settings = league.settings;
   const clock = leagueClock({ seasonStart: league.seasonStart, settings });
   if (args.week < 1 || args.week > totalSeasonWeeks(settings.schedule)) throw new UserError("That week isn't part of the season.");
   if (isWeekLocked(args.week, now, clock)) {
@@ -387,8 +386,9 @@ export async function setTeamLineup(
   const editable = editableWeek(now, clock);
   if (args.week !== editable) throw new UserError(`Right now you can set your lineup for week ${editable}.`);
 
-  const roster = await getTeamRoster(db, args.teamId);
+  const roster = await getTeamRoster(tx, args.teamId);
   const error = validateLineup(args.starters, settings.roster, roster);
   if (error) throw new UserError(error);
-  await saveLineup(db, args.teamId, args.week, args.starters);
+  await saveLineup(tx, args.teamId, args.week, args.starters);
+  });
 }

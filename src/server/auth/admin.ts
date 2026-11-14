@@ -1,14 +1,13 @@
 /**
- * Site admins are the only users who can create leagues. A user is an admin if
- * users.is_admin is true or their username is listed in ADMIN_USERNAMES.
+ * Site admins are the only users who can create leagues. Admin is a flag on
+ * the user row (users.is_admin), granted after the real person has signed up:
+ *
+ *   npm run make-admin -- <username>            # grant
+ *   npm run make-admin -- <username> --revoke   # revoke
+ *
+ * (It used to come from an ADMIN_USERNAMES list, but then the first person to
+ * sign up with a listed name became admin.)
  */
-export function adminUsernames(): string[] {
-  return (process.env.ADMIN_USERNAMES ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-export function isAdminUser(u: { username: string; isAdmin: boolean }): boolean {
-  return u.isAdmin || adminUsernames().includes(u.username.toLowerCase());
+export function isAdminUser(u: { isAdmin: boolean }): boolean {
+  return u.isAdmin;
 }

@@ -35,7 +35,7 @@ export const PRACTICE_SECONDS_PER_PICK = 30;
 export const DEMO_CURRENT_WEEK = 7;
 /** Weeks with approved scoring events (weeks 1..N). */
 export const SCORED_WEEKS = 6;
-export const APPROVED_EVENTS_PER_WEEK = 20;
+export const APPROVED_EVENTS_PER_WEEK = 45;
 
 export type DemoUser = { username: string; displayName: string };
 

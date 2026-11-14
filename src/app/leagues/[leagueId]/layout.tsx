@@ -1,20 +1,11 @@
 import Link from "next/link";
 import { LeagueNav } from "@/components/league-nav";
 import { getLeagueContext } from "@/server/league-context";
-import { runLeagueMaintenance } from "@/server/services/maintenance";
 
 export default async function LeagueLayout({ children, params }: LayoutProps<"/leagues/[leagueId]">) {
   const { leagueId } = await params;
   const ctx = await getLeagueContext(leagueId);
-  // Lazily process anything that came due (waivers, trade reviews, the draft
-  // clock) so the league stays current even between daily cron runs. A failure
-  // here must not take every league page down (the cron and the next page view
-  // retry it).
-  try {
-    await runLeagueMaintenance(leagueId);
-  } catch (e) {
-    console.error(`League maintenance failed for league ${leagueId}`, e);
-  }
+  // (Lazy maintenance runs inside getLeagueContext, before any page data loads.)
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-line bg-surface/95 backdrop-blur">

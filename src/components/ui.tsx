@@ -4,9 +4,14 @@
  */
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
+import { twMerge } from "tailwind-merge";
 
+/**
+ * Join class names; later Tailwind classes win over conflicting earlier ones
+ * (e.g. cx("w-full", "w-28") → "w-28"), so callers can override kit defaults.
+ */
 export function cx(...parts: (string | false | null | undefined)[]): string {
-  return parts.filter(Boolean).join(" ");
+  return twMerge(parts.filter(Boolean).join(" "));
 }
 
 export function Page({ children, className }: { children: ReactNode; className?: string }) {
@@ -49,7 +54,7 @@ const buttonVariants: Record<ButtonVariant, string> = {
   primary: "bg-brand text-brand-ink hover:opacity-90",
   secondary: "border border-line bg-surface text-ink hover:bg-surface-2",
   ghost: "text-brand hover:bg-brand-soft",
-  danger: "bg-neg text-white hover:opacity-90",
+  danger: "bg-neg text-brand-ink hover:opacity-90",
 };
 
 export function buttonClass(variant: ButtonVariant = "primary", extra?: string): string {

@@ -8,6 +8,7 @@ import { isUuid } from "@/lib/format";
 import { parseLeagueSettings, type LeagueSettings } from "@/lib/settings";
 import { getCurrentUser, requireUser, type CurrentUser } from "@/server/auth/session";
 import { UserError } from "@/server/action-result";
+import { runLeagueMaintenance } from "@/server/services/maintenance";
 
 export type LeagueContext = {
   user: CurrentUser;
@@ -50,10 +51,21 @@ async function loadContext(user: CurrentUser, leagueId: string): Promise<LeagueC
  * user isn't a member.
  */
 export const getLeagueContext = cache(async (leagueId: string): Promise<LeagueContext> => {
-  const user = await requireUser();
-  const ctx = await loadContext(user, leagueId);
-  if (!ctx) notFound();
-  return ctx;
+  const user = await requireUser(`/leagues/${leagueId}`);
+  const first = await loadContext(user, leagueId);
+  if (!first) notFound();
+  // Process anything that came due (waivers, trade reviews, the draft clock)
+  // BEFORE the layout and page read league data. Layouts and pages render in
+  // parallel, but both await this cached context, so neither sees stale state.
+  // A failure must not take every league page down; the cron and the next page
+  // view retry it.
+  try {
+    await runLeagueMaintenance(leagueId);
+  } catch (e) {
+    console.error(`League maintenance failed for league ${leagueId}`, e);
+    return first;
+  }
+  return (await loadContext(user, leagueId)) ?? first;
 });
 
 /** For Server Components that are commissioner-only. */

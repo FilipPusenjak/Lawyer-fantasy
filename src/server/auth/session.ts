@@ -62,9 +62,12 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   return { ...u, isAdmin: isAdminUser(u) };
 });
 
-/** The signed-in user; redirects to /login when signed out. */
-export async function requireUser(): Promise<CurrentUser> {
+/**
+ * The signed-in user; redirects to /login when signed out. `next` (a same-site
+ * path) brings them back there after logging in.
+ */
+export async function requireUser(next?: string): Promise<CurrentUser> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(next && next.startsWith("/") && !next.startsWith("//") ? `/login?next=${encodeURIComponent(next)}` : "/login");
   return user;
 }

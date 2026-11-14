@@ -39,7 +39,8 @@ export function TeamPicker({
 
 /**
  * Live "you give / you get" counter and roster sizes after the swap. Listens
- * to change events on the surrounding form's give/get checkboxes.
+ * to change events on the surrounding form's give/get checkboxes. The form is
+ * keyed by the other team, so this starts over when the team changes.
  */
 export function TradeSummary({
   theirName,

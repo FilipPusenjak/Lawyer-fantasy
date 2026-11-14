@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
+import { scoringEvents, weekFinalizations } from "@/db/schema";
 import { Badge, Card, CardTitle, cx, EmptyState, ListRow, Page, PageHeader, Points } from "@/components/ui";
 import { fmtPoints, isUuid } from "@/lib/format";
 import {
@@ -27,7 +29,7 @@ import { AddClaimButton, DropButton, MoveProvider } from "../../players/move-con
 import { AvailabilityBadge, LawyerLink, PositionBadge } from "../../players/player-bits";
 import { formatShortDay } from "../../players/player-filters";
 import { newTradeHref } from "@/app/leagues/[leagueId]/trades/trade-labels";
-import { barPercent, eventRows, safeHttpUrl, weeklyPoints } from "./lawyer-stats";
+import { barPercent, checkFinalizedWeeks, eventRows, safeHttpUrl, weeklyPoints } from "./lawyer-stats";
 
 export const metadata: Metadata = { title: "Lawyer" };
 
@@ -68,15 +70,37 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
   const firm = lawyer.firmId ? sb.lawyers.get(lawyer.firmId) : undefined;
   const lines = sb.live.get(lawyer.id)?.lines ?? [];
 
-  const [caseList, eventDetails] = await Promise.all([
+  // Finalized weeks count their saved score, so events approved after a week
+  // was finalized are listed but not counted (see checkFinalizedWeeks).
+  const finalizedEventIds = lines.filter((l) => sb.finalizedWeeks.has(l.week)).map((l) => l.eventId);
+  const [caseList, eventDetails, finalizations, approvals] = await Promise.all([
     loadLawyerCases(db, league.poolId, [lawyer.id, ...members.map((m) => m.id)]),
     loadEventDetails(
       db,
       league.poolId,
       lines.map((l) => l.eventId),
     ),
+    sb.finalizedWeeks.size > 0
+      ? db
+          .select({ week: weekFinalizations.week, finalizedAt: weekFinalizations.finalizedAt })
+          .from(weekFinalizations)
+          .where(eq(weekFinalizations.leagueId, leagueId))
+      : Promise.resolve([] as { week: number; finalizedAt: Date }[]),
+    finalizedEventIds.length > 0
+      ? db
+          .select({ id: scoringEvents.id, reviewedAt: scoringEvents.reviewedAt })
+          .from(scoringEvents)
+          .where(and(eq(scoringEvents.poolId, league.poolId), inArray(scoringEvents.id, finalizedEventIds)))
+      : Promise.resolve([] as { id: string; reviewedAt: Date | null }[]),
   ]);
   const events = eventRows(lines, eventDetails);
+  const finalizedAt = new Map(finalizations.map((f) => [f.week, f.finalizedAt]));
+  const finalCheck = checkFinalizedWeeks(
+    lines,
+    new Map([...sb.finalizedWeeks].map((w) => [w, finalizedAt.get(w) ?? null])),
+    new Map(approvals.map((a) => [a.id, a.reviewedAt])),
+    (w) => sb.lawyerWeek(lawyer.id, w),
+  );
 
   const availability = availabilityMap.get(lawyer.id);
   const canMove = movesOpen(league.status) && !!team;
@@ -127,7 +151,7 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
                 <span className="flex flex-wrap items-center gap-x-3">
                   <span>
                     On{" "}
-                    <Link href={`${base}/teams/${availability.teamId}`} className="font-semibold text-brand">
+                    <Link href={`${base}/teams/${availability.teamId}`} className="inline-flex min-h-11 items-center font-semibold text-brand">
                       {availability.teamName}
                     </Link>
                   </span>
@@ -144,7 +168,7 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
                 <span className="flex flex-wrap items-center gap-1.5">
                   <AvailabilityBadge availability={availability} myTeamId={team?.id ?? null} waiversUntil={waiversUntil} />
                   {claimOrder !== undefined ? (
-                    <Link href={`${base}/waivers`} className="font-semibold text-accent">
+                    <Link href={`${base}/waivers`} className="inline-flex min-h-11 items-center font-semibold text-accent">
                       Your claim #{claimOrder} ›
                     </Link>
                   ) : null}
@@ -161,7 +185,7 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
             <Points value={sb.lawyerTotal(lawyer.id)} className="text-3xl font-bold" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Preseason rank</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Draft rank</p>
             <p className="font-display text-3xl font-bold">{lawyer.preseasonRank ?? "–"}</p>
           </div>
         </div>
@@ -188,7 +212,7 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
               <p className="font-display text-xl font-bold tabular-nums">{projectionRangeLabel(pr)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Rank</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Proj. rank</p>
               <p className="font-display text-xl font-bold tabular-nums">
                 #{pr.overallRank} · {pr.positionLabel}
               </p>
@@ -285,25 +309,43 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
           <EmptyState title="No scoring events yet">Points show up after the commissioner approves events from public records.</EmptyState>
         ) : (
           <ul>
-            {events.map(({ line, event }) => (
-              <li key={line.eventId} className="border-b border-line py-3 last:border-b-0">
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold leading-snug">{EVENT_LABELS[event.type as EventType] ?? event.type}</p>
-                    <p className="mt-0.5 text-xs text-muted">
-                      {formatDate(event.occurredOn)} · Week {line.week}
-                      {line.viaFirm ? ` · via firm (${fmtPoints(settings.scoring.firmMultiplier)}×)` : ""}
-                    </p>
+            {events.map(({ line, event }) => {
+              const notCounted = finalCheck.notCounted.has(line.eventId);
+              return (
+                <li key={line.eventId} className="border-b border-line py-3 last:border-b-0">
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold leading-snug">{EVENT_LABELS[event.type as EventType] ?? event.type}</p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {formatDate(event.occurredOn)} · Week {line.week}
+                        {line.viaFirm ? ` · via firm (${fmtPoints(settings.scoring.firmMultiplier)}×)` : ""}
+                      </p>
+                    </div>
+                    <Points
+                      value={line.points}
+                      signed
+                      className={cx("shrink-0 text-xl font-bold", notCounted && "text-muted line-through")}
+                    />
                   </div>
-                  <Points value={line.points} signed className="shrink-0 text-xl font-bold" />
-                </div>
-                {event.caseCaption ? <p className="mt-1 text-sm">{event.caseCaption}</p> : null}
-                <p className="mt-1 text-sm text-muted">{event.summary}</p>
-                <SourceLink url={event.sourceUrl ?? event.caseSourceUrl} />
-              </li>
-            ))}
+                  {notCounted ? (
+                    <p className="mt-1 text-xs font-semibold text-warn">
+                      Not counted: week {line.week} was already final when this was approved.
+                    </p>
+                  ) : null}
+                  {event.caseCaption ? <p className="mt-1 text-sm">{event.caseCaption}</p> : null}
+                  <p className="mt-1 text-sm text-muted">{event.summary}</p>
+                  <SourceLink url={event.sourceUrl ?? event.caseSourceUrl} />
+                </li>
+              );
+            })}
           </ul>
         )}
+        {finalCheck.mismatched.map((m) => (
+          <p key={m.week} className="mt-2 text-xs text-muted">
+            Week {m.week} counts {fmtPoints(m.points)} pts, its score when it was finalized. Changes made after that (edited
+            events or point values) don&apos;t count.
+          </p>
+        ))}
       </Card>
 
       <p className="text-center text-xs text-muted">

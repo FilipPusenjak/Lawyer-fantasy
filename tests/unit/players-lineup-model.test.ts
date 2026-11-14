@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { assignSlot, benchOf, eligibleFor, parseWeekParam, sameLineup, type EditorPlayer } from "@/app/leagues/[leagueId]/team/lineup-model";
+import {
+  assignSlot,
+  benchOf,
+  eligibleFor,
+  parseWeekParam,
+  reconcileStarters,
+  sameLineup,
+  type EditorPlayer,
+} from "@/app/leagues/[leagueId]/team/lineup-model";
 import type { SlotType } from "@/lib/settings";
 
 const slots: SlotType[] = ["trial", "defense", "flex", "firm"];
@@ -64,5 +72,32 @@ describe("lineup helpers", () => {
     expect(parseWeekParam("6", 1, 5)).toBeNull();
     expect(parseWeekParam("2.5", 1, 5)).toBeNull();
     expect(parseWeekParam(undefined, 1, 5)).toBeNull();
+  });
+});
+
+describe("reconcileStarters", () => {
+  const roster = new Set(["t1", "t2", "d1", "f1"]);
+
+  it("takes the new saved lineup when there are no unsaved edits", () => {
+    const saved = ["t1", "d1", null, "f1"];
+    expect(reconcileStarters(saved, saved, ["t1", null, null, "f1"], roster)).toEqual(["t1", null, null, "f1"]);
+  });
+
+  it("keeps unsaved edits when the roster changes, dropping only lawyers who left", () => {
+    const prevSaved = ["t1", "d1", null, "f1"];
+    const edited = ["t2", "d1", "t1", "f1"];
+    // d1 was dropped: the server cleared it from the saved lineup too.
+    const nextSaved = ["t1", null, null, "f1"];
+    const rosterAfter = new Set(["t1", "t2", "f1"]);
+    expect(reconcileStarters(edited, prevSaved, nextSaved, rosterAfter)).toEqual(["t2", null, "t1", "f1"]);
+  });
+
+  it("keeps edits as they are after a save that matches them", () => {
+    const edited = ["t2", "d1", "t1", "f1"];
+    expect(reconcileStarters(edited, ["t1", "d1", null, "f1"], edited, roster)).toEqual(edited);
+  });
+
+  it("falls back to the saved lineup when the slot count changed", () => {
+    expect(reconcileStarters(["t2", "d1", "t1", "f1"], ["t1", "d1", null, "f1"], ["t1", "d1", null], roster)).toEqual(["t1", "d1", null]);
   });
 });

@@ -80,7 +80,9 @@ export default async function NewTradePage({ params, searchParams }: PageProps<"
       </Card>
 
       {other ? (
-        <ActionForm action={proposeTradeAction} className="space-y-4">
+        // Picking another team only changes ?with=, which doesn't remount client
+        // state: key by team so checkboxes, counts and warnings start fresh.
+        <ActionForm key={other.id} action={proposeTradeAction} className="space-y-4">
           <input type="hidden" name="leagueId" value={leagueId} />
           <input type="hidden" name="recipientTeamId" value={other.id} />
 

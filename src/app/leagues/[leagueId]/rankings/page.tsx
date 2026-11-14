@@ -57,7 +57,13 @@ function ChipRow({ label, children }: { label: string; children: ReactNode }) {
 function StatusBadge({ status, myTeamId }: { status: LeagueProjectionRow["status"]; myTeamId: string | null }) {
   if (status.kind === "rostered") {
     if (status.teamId === myTeamId) return <Badge tone="brand">Your team</Badge>;
-    return <Badge className="max-w-40 truncate">{status.teamName}</Badge>;
+    return (
+      <Badge className="min-w-0 max-w-40">
+        <span className="truncate" title={status.teamName}>
+          {status.teamName}
+        </span>
+      </Badge>
+    );
   }
   if (status.kind === "waivers") return <Badge tone="warn">Waivers</Badge>;
   return <Badge tone="pos">Free agent</Badge>;

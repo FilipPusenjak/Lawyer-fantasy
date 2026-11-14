@@ -46,3 +46,49 @@ export function safeHttpUrl(url: string | null | undefined): string | null {
     return null;
   }
 }
+
+export type FinalizedWeekCheck = {
+  /** Events approved after their week was finalized: their points aren't in that week's saved score. */
+  notCounted: Set<string>;
+  /** Finalized weeks whose listed events still don't add up to the saved score (e.g. point values changed later), with that score. */
+  mismatched: { week: number; points: number }[];
+};
+
+const samePoints = (a: number, b: number) => Math.abs(a - b) < 0.005;
+
+/**
+ * Finalized weeks count the score saved when they were finalized, while the
+ * event list is computed live from every approved event. Reconcile the two so
+ * the list agrees with the weekly bars and season total: flag events approved
+ * after their week was finalized, and report weeks that still differ.
+ *
+ * @param finalized week → when it was finalized (null if unknown), for every finalized week
+ * @param reviewedAt event id → when it was approved
+ * @param savedPoints the lawyer's saved score for a finalized week
+ */
+export function checkFinalizedWeeks(
+  lines: PointLineLike[],
+  finalized: Map<number, Date | null>,
+  reviewedAt: Map<string, Date | null>,
+  savedPoints: (week: number) => number,
+): FinalizedWeekCheck {
+  const notCounted = new Set<string>();
+  const mismatched: { week: number; points: number }[] = [];
+  for (const [week, finalizedAt] of [...finalized].sort((a, b) => a[0] - b[0])) {
+    const weekLines = lines.filter((l) => l.week === week);
+    const saved = savedPoints(week);
+    let counted = weekLines.reduce((t, l) => t + l.points, 0);
+    if (samePoints(counted, saved)) continue;
+    if (finalizedAt) {
+      for (const l of weekLines) {
+        const approved = reviewedAt.get(l.eventId);
+        if (approved && approved.getTime() > finalizedAt.getTime()) {
+          notCounted.add(l.eventId);
+          counted -= l.points;
+        }
+      }
+    }
+    if (!samePoints(counted, saved)) mismatched.push({ week, points: saved });
+  }
+  return { notCounted, mismatched };
+}

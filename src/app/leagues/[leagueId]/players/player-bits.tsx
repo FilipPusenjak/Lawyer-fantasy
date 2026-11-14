@@ -65,7 +65,13 @@ export function AvailabilityBadge({
 }) {
   if (availability.kind === "rostered") {
     if (availability.teamId === myTeamId) return <Badge tone="brand">Your team</Badge>;
-    return <Badge className="max-w-40 truncate">{availability.teamName}</Badge>;
+    return (
+      <Badge className="min-w-0 max-w-40">
+        <span className="truncate" title={availability.teamName}>
+          {availability.teamName}
+        </span>
+      </Badge>
+    );
   }
   if (availability.kind === "waivers") return <Badge tone="warn">{waiversUntil ? `Waivers · ${waiversUntil}` : "Waivers"}</Badge>;
   return <Badge tone="pos">Free agent</Badge>;

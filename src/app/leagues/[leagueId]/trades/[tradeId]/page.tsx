@@ -6,6 +6,7 @@ import { isUuid } from "@/lib/format";
 import { getLeagueContext } from "@/server/league-context";
 import { getScoreboard } from "@/server/services/scores";
 import { canViewTrade, getTradeView, staleTradeLawyers, type TradeViewer } from "@/server/services/trades";
+import { ResultToastProvider } from "../../players/result-toast";
 import { TradeCard } from "../trade-card";
 import { reviewText } from "../trade-labels";
 
@@ -22,25 +23,27 @@ export default async function TradeDetailPage({ params }: PageProps<"/leagues/[l
   const [stale, scoreboard] = await Promise.all([staleTradeLawyers(db, leagueId, [trade]), getScoreboard(leagueId)]);
 
   return (
-    <Page className="space-y-4">
-      <PageHeader
-        title="Trade"
-        subtitle={trade.status === "accepted" ? reviewText(ctx.settings.trades.reviewHours) : undefined}
-        action={
-          <LinkButton href={`/leagues/${leagueId}/trades`} variant="secondary">
-            All trades
-          </LinkButton>
-        }
-      />
-      <TradeCard
-        trade={trade}
-        leagueId={leagueId}
-        viewer={viewer}
-        points={(id) => scoreboard.lawyerTotal(id)}
-        timeZone={ctx.settings.schedule.timezone}
-        stale={stale.get(trade.id)}
-        detail
-      />
-    </Page>
+    <ResultToastProvider>
+      <Page className="space-y-4">
+        <PageHeader
+          title="Trade"
+          subtitle={trade.status === "accepted" ? reviewText(ctx.settings.trades.reviewHours) : undefined}
+          action={
+            <LinkButton href={`/leagues/${leagueId}/trades`} variant="secondary">
+              All trades
+            </LinkButton>
+          }
+        />
+        <TradeCard
+          trade={trade}
+          leagueId={leagueId}
+          viewer={viewer}
+          points={(id) => scoreboard.lawyerTotal(id)}
+          timeZone={ctx.settings.schedule.timezone}
+          stale={stale.get(trade.id)}
+          detail
+        />
+      </Page>
+    </ResultToastProvider>
   );
 }

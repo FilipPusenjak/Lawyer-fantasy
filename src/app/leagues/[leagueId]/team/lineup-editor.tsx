@@ -3,6 +3,8 @@
 /**
  * Lineup editor for the current editable week. Tap a slot to open a picker of
  * roster players who can play it (from the bench or another slot), then save.
+ * Unsaved edits survive roster changes made elsewhere on the page (a drop
+ * only removes that lawyer from the edited lineup).
  */
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -13,7 +15,7 @@ import { fmtPoints } from "@/lib/format";
 import { POSITION_SHORT, SLOT_LABELS, type Position, type RosterSettings, type SlotType } from "@/lib/settings";
 import { PositionBadge, SlotChip } from "../players/player-bits";
 import { saveLineupAction } from "./actions";
-import { assignSlot, benchOf, eligibleFor, sameLineup } from "./lineup-model";
+import { assignSlot, benchOf, eligibleFor, reconcileStarters, sameLineup } from "./lineup-model";
 
 export type EditorRosterPlayer = {
   id: string;
@@ -41,6 +43,16 @@ export function LineupEditor({
 }) {
   const [starters, setStarters] = useState<(string | null)[]>(initial);
   const [open, setOpen] = useState<number | null>(null);
+
+  // New saved lineup or roster from the server (after a save, drop or add):
+  // merge it into the edits instead of throwing them away.
+  const rosterKey = players.map((p) => p.id).join(",");
+  const [synced, setSynced] = useState({ initial, rosterKey });
+  if (rosterKey !== synced.rosterKey || !sameLineup(initial, synced.initial)) {
+    setSynced({ initial, rosterKey });
+    setStarters(reconcileStarters(starters, synced.initial, initial, new Set(players.map((p) => p.id))));
+  }
+
   const byId = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
   const dirty = !sameLineup(starters, initial);
   const bench = benchOf(starters, players);
@@ -103,7 +115,7 @@ export function LineupEditor({
                       {options.length === 0 ? (
                         <p className="px-2 pb-2 text-sm text-muted">
                           Nobody else on your roster can play {SLOT_LABELS[slot]}.{" "}
-                          <Link href={`${base}/players`} className="font-semibold text-brand">
+                          <Link href={`${base}/players`} className="inline-flex min-h-11 items-center font-semibold text-brand">
                             Find one
                           </Link>
                         </p>

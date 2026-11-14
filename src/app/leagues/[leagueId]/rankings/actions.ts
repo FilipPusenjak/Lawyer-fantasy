@@ -11,7 +11,7 @@ import { applyProjectionRanks } from "@/server/services/projections";
 const schema = z.object({ leagueId: z.string().refine(isUuid) });
 
 /**
- * Set every pool lawyer's preseason (draft) rank to their projection rank.
+ * Set every pool lawyer's draft rank (stored as preseason_rank) to their projection rank.
  * Commissioners of this league who can manage its pool only.
  */
 export async function applyProjectionRanksAction(_prev: unknown, formData: FormData): Promise<ActionResult> {

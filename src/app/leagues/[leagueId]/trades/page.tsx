@@ -15,6 +15,7 @@ import {
   type TradeView,
   type TradeViewer,
 } from "@/server/services/trades";
+import { ResultToastProvider } from "../players/result-toast";
 import { TradeCard } from "./trade-card";
 import { firstParam, newTradeHref, reviewText, tradeDeadlineText } from "./trade-labels";
 
@@ -56,40 +57,44 @@ export default async function TradesPage({ params, searchParams }: PageProps<"/l
     <TradeCard key={t.id} trade={t} leagueId={leagueId} viewer={viewer} points={points} timeZone={tz} stale={stale.get(t.id)} />
   );
 
+  // Accept/decline/cancel/veto results show as a page-level toast: the card
+  // that was acted on changes section (or loses its buttons) on refresh.
   return (
-    <Page className="space-y-5">
-      <PageHeader
-        title="Trades"
-        subtitle={tradeDeadlineText({ ...windowArgs, seasonStart: league.seasonStart })}
-        action={canPropose ? <LinkButton href={newTradeHref(leagueId)}>New offer</LinkButton> : undefined}
-      />
+    <ResultToastProvider>
+      <Page className="space-y-5">
+        <PageHeader
+          title="Trades"
+          subtitle={tradeDeadlineText({ ...windowArgs, seasonStart: league.seasonStart })}
+          action={canPropose ? <LinkButton href={newTradeHref(leagueId)}>New offer</LinkButton> : undefined}
+        />
 
-      {sent ? <Notice tone="success">Offer sent to {sent.recipientName}! They can accept or decline it.</Notice> : null}
-      {!ctx.team ? <Notice>You don&apos;t have a team in this league, so you can&apos;t trade.</Notice> : null}
+        {sent ? <Notice tone="success">Offer sent to {sent.recipientName}! They can accept or decline it.</Notice> : null}
+        {!ctx.team ? <Notice>You don&apos;t have a team in this league, so you can&apos;t trade.</Notice> : null}
 
-      <Section title="Offers to you" count={offersToMe.length}>
-        {offersToMe.length ? offersToMe.map(card) : <EmptyState title="No offers right now." />}
-      </Section>
+        <Section title="Offers to you" count={offersToMe.length}>
+          {offersToMe.length ? offersToMe.map(card) : <EmptyState title="No offers right now." />}
+        </Section>
 
-      <Section title="Your offers" count={myOffers.length}>
-        {myOffers.length ? (
-          myOffers.map(card)
-        ) : (
-          <EmptyState title="You haven't sent any offers.">
-            {canPropose ? "Tap New offer to build one." : null}
-          </EmptyState>
-        )}
-      </Section>
+        <Section title="Your offers" count={myOffers.length}>
+          {myOffers.length ? (
+            myOffers.map(card)
+          ) : (
+            <EmptyState title="You haven't sent any offers.">
+              {canPropose ? "Tap New offer to build one." : null}
+            </EmptyState>
+          )}
+        </Section>
 
-      <Section title="In review" count={inReview.length} hint={reviewText(settings.trades.reviewHours)}>
-        {inReview.length ? inReview.map(card) : <EmptyState title="No trades waiting on review." />}
-      </Section>
+        <Section title="In review" count={inReview.length} hint={reviewText(settings.trades.reviewHours)}>
+          {inReview.length ? inReview.map(card) : <EmptyState title="No trades waiting on review." />}
+        </Section>
 
-      <Section title="History">
-        {history.length ? history.map(card) : <EmptyState title="No trades yet." />}
-        {history.length === HISTORY_LIMIT ? <p className="text-center text-xs text-muted">Showing the latest {HISTORY_LIMIT}.</p> : null}
-      </Section>
-    </Page>
+        <Section title="History">
+          {history.length ? history.map(card) : <EmptyState title="No trades yet." />}
+          {history.length === HISTORY_LIMIT ? <p className="text-center text-xs text-muted">Showing the latest {HISTORY_LIMIT}.</p> : null}
+        </Section>
+      </Page>
+    </ResultToastProvider>
   );
 }
 

@@ -97,95 +97,100 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
   const shown = matches.slice(0, filters.limit);
 
   return (
-    <Page className="space-y-3">
-      <PageHeader
-        title="Lawyers"
-        subtitle={team ? `Your roster: ${myRoster.length}/${maxRoster}${rosterFull ? " (full)" : ""}` : undefined}
-        action={
-          team && movesOpen(league.status) ? (
-            <LinkButton href={`/leagues/${leagueId}/waivers`} variant="secondary">
-              {myClaims.size ? `Claims (${myClaims.size})` : "Waivers"}
-            </LinkButton>
-          ) : null
-        }
-      />
-
-      {league.status === "setup" || league.status === "drafting" ? (
-        <Notice>
-          Draft hasn&apos;t happened yet, so this list is view-only.{" "}
-          <Link href={`/leagues/${leagueId}/draft`} className="font-semibold text-brand">
-            Go to the draft room
-          </Link>
-        </Notice>
-      ) : closedReason ? (
-        <Notice>{closedReason}</Notice>
-      ) : null}
-
-      <form action={base} method="get" className="flex gap-2" role="search">
-        {filters.position !== "all" ? <input type="hidden" name="pos" value={filters.position} /> : null}
-        {filters.status !== "available" ? <input type="hidden" name="status" value={filters.status} /> : null}
-        {filters.sort !== "points" ? <input type="hidden" name="sort" value={filters.sort} /> : null}
-        <Input
-          type="search"
-          name="q"
-          defaultValue={filters.q}
-          placeholder="Search name, firm or office"
-          aria-label="Search lawyers"
-          maxLength={60}
-          className="flex-1"
+    // The provider owns the add/claim/drop result toast, so it wraps the whole
+    // page: the message must survive the list emptying (e.g. after adding the
+    // only search match).
+    <MoveProvider
+      leagueId={leagueId}
+      dropOptions={myRoster.map((r) => ({ id: r.id, name: r.name, position: r.position }))}
+      rosterFull={rosterFull}
+    >
+      <Page className="space-y-3">
+        <PageHeader
+          title="Lawyers"
+          subtitle={team ? `Your roster: ${myRoster.length}/${maxRoster}${rosterFull ? " (full)" : ""}` : undefined}
+          action={
+            team && movesOpen(league.status) ? (
+              <LinkButton href={`/leagues/${leagueId}/waivers`} variant="secondary">
+                {myClaims.size ? `Claims (${myClaims.size})` : "Waivers"}
+              </LinkButton>
+            ) : null
+          }
         />
-        <Button type="submit" variant="secondary" className="px-3">
-          Search
-        </Button>
-      </form>
 
-      <ChipRow label="Filter by position">
-        {(["all", ...POSITIONS] as const).map((p) => (
-          <Chip key={p} href={playersHref(base, filters, { position: p })} active={filters.position === p}>
-            {p === "all" ? "All" : POSITION_SHORT[p]}
-          </Chip>
-        ))}
-      </ChipRow>
-      <ChipRow label="Filter by status">
-        {STATUS_FILTERS.map((s) => (
-          <Chip key={s} href={playersHref(base, filters, { status: s })} active={filters.status === s}>
-            {STATUS_FILTER_LABELS[s]}
-          </Chip>
-        ))}
-      </ChipRow>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        <span className="text-muted">Sort:</span>
-        {SORTS.map((s) => (
-          <Link
-            key={s}
-            href={playersHref(base, filters, { sort: s })}
-            className={cx("flex min-h-11 items-center font-semibold", filters.sort === s ? "text-brand" : "text-muted")}
-            aria-current={filters.sort === s ? "true" : undefined}
-          >
-            {SORT_LABELS[s]}
+        {league.status === "setup" || league.status === "drafting" ? (
+          <Notice>
+            {league.status === "drafting"
+              ? "The draft is happening now, so this list is view-only."
+              : "Draft hasn't happened yet, so this list is view-only."}{" "}
+            <Link href={`/leagues/${leagueId}/draft`} className="inline-flex min-h-11 items-center font-semibold text-brand">
+              {league.status === "drafting" ? "Enter the draft room" : "Go to the draft room"}
+            </Link>
+          </Notice>
+        ) : closedReason ? (
+          <Notice>{closedReason}</Notice>
+        ) : null}
+
+        <form action={base} method="get" className="flex gap-2" role="search">
+          {filters.position !== "all" ? <input type="hidden" name="pos" value={filters.position} /> : null}
+          {filters.status !== "available" ? <input type="hidden" name="status" value={filters.status} /> : null}
+          {filters.sort !== "points" ? <input type="hidden" name="sort" value={filters.sort} /> : null}
+          <Input
+            type="search"
+            name="q"
+            defaultValue={filters.q}
+            placeholder="Search name, firm or office"
+            aria-label="Search lawyers"
+            maxLength={60}
+            className="flex-1"
+          />
+          <Button type="submit" variant="secondary" className="px-3">
+            Search
+          </Button>
+        </form>
+
+        <ChipRow label="Filter by position">
+          {(["all", ...POSITIONS] as const).map((p) => (
+            <Chip key={p} href={playersHref(base, filters, { position: p })} active={filters.position === p}>
+              {p === "all" ? "All" : POSITION_SHORT[p]}
+            </Chip>
+          ))}
+        </ChipRow>
+        <ChipRow label="Filter by status">
+          {STATUS_FILTERS.map((s) => (
+            <Chip key={s} href={playersHref(base, filters, { status: s })} active={filters.status === s}>
+              {STATUS_FILTER_LABELS[s]}
+            </Chip>
+          ))}
+        </ChipRow>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span className="text-muted">Sort:</span>
+          {SORTS.map((s) => (
+            <Link
+              key={s}
+              href={playersHref(base, filters, { sort: s })}
+              className={cx("flex min-h-11 items-center font-semibold", filters.sort === s ? "text-brand" : "text-muted")}
+              aria-current={filters.sort === s ? "true" : undefined}
+            >
+              {SORT_LABELS[s]}
+            </Link>
+          ))}
+        </div>
+        <p className="text-xs text-muted">
+          {PROJECTION_DISCLAIMER}{" "}
+          <Link href={`/leagues/${leagueId}/rankings`} className="inline-flex min-h-11 items-center font-semibold text-brand">
+            Rankings ›
           </Link>
-        ))}
-      </div>
-      <p className="text-xs text-muted">
-        {PROJECTION_DISCLAIMER}{" "}
-        <Link href={`/leagues/${leagueId}/rankings`} className="font-semibold text-brand">
-          Rankings ›
-        </Link>
-      </p>
+        </p>
 
-      <Card className="px-3 py-1">
-        {shown.length === 0 ? (
-          <div className="py-3">
-            <EmptyState title="No lawyers match">
-              {filters.q ? "Try a different search, position or status." : "Try a different position or status."}
-            </EmptyState>
-          </div>
-        ) : (
-          <MoveProvider
-            leagueId={leagueId}
-            dropOptions={myRoster.map((r) => ({ id: r.id, name: r.name, position: r.position }))}
-            rosterFull={rosterFull}
-          >
+        <Card className="px-3 py-1">
+          {shown.length === 0 ? (
+            <div className="py-3">
+              <EmptyState title="No lawyers match">
+                {filters.q ? "Try a different search, position or status." : "Try a different position or status."}
+              </EmptyState>
+            </div>
+          ) : (
             <ul>
               {shown.map((p) => {
                 const a = p.availability;
@@ -228,20 +233,20 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
                 );
               })}
             </ul>
-          </MoveProvider>
-        )}
-      </Card>
+          )}
+        </Card>
 
-      <div className="flex items-center justify-between gap-3 text-sm text-muted">
-        <span>
-          Showing {shown.length} of {plural(matches.length, "lawyer")}
-        </span>
-        {matches.length > shown.length ? (
-          <LinkButton href={playersHref(base, filters, { limit: filters.limit + PAGE_STEP })} variant="secondary">
-            Show more
-          </LinkButton>
-        ) : null}
-      </div>
-    </Page>
+        <div className="flex items-center justify-between gap-3 text-sm text-muted">
+          <span>
+            Showing {shown.length} of {plural(matches.length, "lawyer")}
+          </span>
+          {matches.length > shown.length ? (
+            <LinkButton href={playersHref(base, filters, { limit: filters.limit + PAGE_STEP })} variant="secondary">
+              Show more
+            </LinkButton>
+          ) : null}
+        </div>
+      </Page>
+    </MoveProvider>
   );
 }

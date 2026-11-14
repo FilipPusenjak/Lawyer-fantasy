@@ -50,6 +50,22 @@ export function sameLineup(a: (string | null)[], b: (string | null)[]): boolean 
   return a.length === b.length && a.every((x, i) => (x ?? null) === (b[i] ?? null));
 }
 
+/**
+ * Starters to show when the server sends a new saved lineup or roster while
+ * the editor is open (e.g. after a drop from the roster card). With no
+ * unsaved edits, take the new saved lineup; otherwise keep the edits, minus
+ * anyone who is no longer on the roster.
+ */
+export function reconcileStarters(
+  current: (string | null)[],
+  prevSaved: (string | null)[],
+  nextSaved: (string | null)[],
+  rosterIds: ReadonlySet<string>,
+): (string | null)[] {
+  if (sameLineup(current, prevSaved) || current.length !== nextSaved.length) return [...nextSaved];
+  return current.map((id) => (id && rosterIds.has(id) ? id : null));
+}
+
 /** Read ?week= as an integer within [min, max]; null when missing or out of range. */
 export function parseWeekParam(raw: string | string[] | undefined, min: number, max: number): number | null {
   const v = Array.isArray(raw) ? raw[0] : raw;

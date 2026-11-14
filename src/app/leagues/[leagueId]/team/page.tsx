@@ -108,8 +108,9 @@ export default async function MyTeamPage({ params, searchParams }: PageProps<"/l
             Locks <span className="font-semibold">{formatDateTime(weekLockTime(week, clock.seasonStart, clock.lockTime, clock.timeZone), tz)}</span>.
             Lawyers with no court activity that week score 0.
           </Notice>
+          {/* Keyed by week only: roster changes (drops below) merge into unsaved edits instead of resetting them. */}
           <LineupEditor
-            key={`${week}:${players.map((p) => p.id).join(",")}`}
+            key={week}
             leagueId={leagueId}
             week={week}
             roster={settings.roster}
@@ -151,7 +152,7 @@ export default async function MyTeamPage({ params, searchParams }: PageProps<"/l
         </CardTitle>
         {roster.length === 0 ? (
           <EmptyState title="No lawyers on your roster">
-            <Link href={`${base}/players`} className="font-semibold text-brand">
+            <Link href={`${base}/players`} className="inline-flex min-h-11 items-center font-semibold text-brand">
               Add some from the lawyer pool
             </Link>
           </EmptyState>

@@ -4,13 +4,14 @@
  * Add / claim / drop controls. All of them submit through one MoveProvider
  * so the result message survives the row changing or disappearing after the
  * page refreshes (e.g. an added lawyer leaves the "Available" list). The
- * message shows as a small toast above the bottom tabs.
+ * message shows as a small toast above the bottom tabs, so render the provider
+ * whether or not the list has rows.
  */
-import { createContext, startTransition, useActionState, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Button, cx, Notice, Select } from "@/components/ui";
+import { createContext, startTransition, useActionState, useContext, useState, type FormEvent, type ReactNode } from "react";
+import { Button, cx, Select } from "@/components/ui";
 import { POSITION_SHORT, type Position } from "@/lib/settings";
-import type { ActionResult } from "@/server/action-result";
 import { rosterMoveAction } from "./actions";
+import { ResultToast } from "./result-toast";
 
 export type DropOption = { id: string; name: string; position: Position };
 
@@ -43,40 +44,12 @@ export function MoveProvider({
   children: ReactNode;
 }) {
   const [state, dispatch, pending] = useActionState(rosterMoveAction, null);
-  const [dismissed, setDismissed] = useState<ActionResult | null>(null);
-
-  useEffect(() => {
-    if (!state) return;
-    const t = setTimeout(() => setDismissed(state), state.ok ? 6000 : 10000);
-    return () => clearTimeout(t);
-  }, [state]);
-
   const submit = (formData: FormData) => startTransition(() => dispatch(formData));
-  const text = state ? (state.ok ? state.message : state.error) : null;
-  const visible = state !== null && state !== dismissed && !!text;
 
   return (
     <MoveContext value={{ leagueId, dropOptions, rosterFull, pending, submit }}>
       {children}
-      {visible ? (
-        <div className="fixed inset-x-0 bottom-20 z-40 px-4" role="status" aria-live="polite">
-          <div className="mx-auto max-w-xl shadow-lg">
-            <Notice tone={state.ok ? "success" : "error"}>
-              <div className="flex items-center gap-2">
-                <p className="min-w-0 flex-1">{text}</p>
-                <button
-                  type="button"
-                  onClick={() => setDismissed(state)}
-                  className="-my-2 -mr-2 flex min-h-11 min-w-11 items-center justify-center text-lg text-muted"
-                  aria-label="Dismiss"
-                >
-                  ×
-                </button>
-              </div>
-            </Notice>
-          </div>
-        </div>
-      ) : null}
+      <ResultToast result={state} />
     </MoveContext>
   );
 }

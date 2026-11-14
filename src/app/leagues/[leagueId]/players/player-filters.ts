@@ -19,7 +19,7 @@ export type SortKey = (typeof SORTS)[number];
 export const SORT_LABELS: Record<SortKey, string> = {
   points: "Season points",
   projection: "Projection",
-  rank: "Preseason rank",
+  rank: "Draft rank",
   name: "Name",
 };
 

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { Badge, Card, Input, LinkButton, Notice, Points } from "@/components/ui";
-import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { POSITION_LABELS, POSITION_SHORT } from "@/lib/settings";
 import { formatDateTime } from "@/lib/time";
 import { allowedTradeActions, TRADE_MESSAGE_MAX, type TradeLawyer, type TradeView, type TradeViewer } from "@/server/services/trades";
+import { ResultForm, ResultSubmit } from "../players/result-toast";
 import { cancelTradeAction, respondToTradeAction, reviewTradeAction } from "./actions";
 import { newTradeHref, TRADE_STATUS_LABELS, tradeStatusTone } from "./trade-labels";
 
@@ -185,22 +185,27 @@ function Hidden({ leagueId, tradeId }: { leagueId: string; tradeId: string }) {
   );
 }
 
-/** Buttons for whoever may act on this trade. The server re-checks everything. */
+/**
+ * Buttons for whoever may act on this trade. The server re-checks everything.
+ * Results ("Trade accepted!…", "Offer declined.", errors) go to the page's
+ * ResultToastProvider: after a success this card moves to another section or
+ * loses its buttons, which would take an in-card message with it.
+ */
 export function TradeActionForms({ trade, leagueId, viewer }: { trade: TradeView; leagueId: string; viewer: TradeViewer }) {
   const can = allowedTradeActions(trade, viewer);
   if (!can.accept && !can.reject && !can.cancel && !can.veto && !can.approve) return null;
   return (
     <div className="space-y-2 border-t border-line pt-3">
       {can.accept || can.reject ? (
-        <ActionForm action={respondToTradeAction}>
+        <ResultForm action={respondToTradeAction}>
           <Hidden leagueId={leagueId} tradeId={trade.id} />
           <div className="grid grid-cols-2 gap-2">
-            <SubmitButton name="intent" value="accept" confirm="Accept this trade?" pendingText="Saving…">
+            <ResultSubmit name="intent" value="accept" confirm="Accept this trade?" pendingText="Saving…">
               Accept
-            </SubmitButton>
-            <SubmitButton name="intent" value="reject" variant="secondary" confirm="Decline this offer?" pendingText="Saving…">
+            </ResultSubmit>
+            <ResultSubmit name="intent" value="reject" variant="secondary" confirm="Decline this offer?" pendingText="Saving…">
               Decline
-            </SubmitButton>
+            </ResultSubmit>
           </div>
           <LinkButton
             variant="ghost"
@@ -213,21 +218,21 @@ export function TradeActionForms({ trade, leagueId, viewer }: { trade: TradeView
           >
             Make a counteroffer
           </LinkButton>
-        </ActionForm>
+        </ResultForm>
       ) : null}
 
       {can.cancel ? (
-        <ActionForm action={cancelTradeAction}>
+        <ResultForm action={cancelTradeAction}>
           <Hidden leagueId={leagueId} tradeId={trade.id} />
-          <SubmitButton
+          <ResultSubmit
             variant="secondary"
             className="w-full"
             confirm={trade.status === "accepted" ? "Back out of this trade?" : "Cancel this offer?"}
             pendingText="Cancelling…"
           >
             {trade.status === "accepted" ? "Back out of trade" : "Cancel offer"}
-          </SubmitButton>
-        </ActionForm>
+          </ResultSubmit>
+        </ResultForm>
       ) : null}
 
       {can.veto || can.approve ? (
@@ -239,17 +244,17 @@ export function TradeActionForms({ trade, leagueId, viewer }: { trade: TradeView
             </span>
           </summary>
           <div className="border-t border-line p-3">
-            <ActionForm action={reviewTradeAction}>
+            <ResultForm action={reviewTradeAction}>
               <Hidden leagueId={leagueId} tradeId={trade.id} />
               <label className="block">
                 <span className="mb-1 block text-sm font-medium">Reason for a veto (optional)</span>
                 <Input name="reason" maxLength={TRADE_MESSAGE_MAX} placeholder="Shown to the league" autoComplete="off" />
               </label>
               <div className="grid grid-cols-2 gap-2">
-                <SubmitButton name="intent" value="veto" variant="danger" confirm="Veto this trade?" pendingText="Saving…">
+                <ResultSubmit name="intent" value="veto" variant="danger" confirm="Veto this trade?" pendingText="Saving…">
                   Veto
-                </SubmitButton>
-                <SubmitButton
+                </ResultSubmit>
+                <ResultSubmit
                   name="intent"
                   value="approve"
                   variant="secondary"
@@ -257,9 +262,9 @@ export function TradeActionForms({ trade, leagueId, viewer }: { trade: TradeView
                   pendingText="Saving…"
                 >
                   Approve now
-                </SubmitButton>
+                </ResultSubmit>
               </div>
-            </ActionForm>
+            </ResultForm>
           </div>
         </details>
       ) : null}

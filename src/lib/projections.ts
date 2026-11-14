@@ -16,9 +16,13 @@
  *    so a half-finished week doesn't look like a slow week.
  * 2. Own rate: a lawyer's recency-weighted average weekly points from events on
  *    their ACTIVE cases (plus lawyer-specific events that have no case). On
- *    researched cases (step 10) only recurring docket activity counts (filings
- *    and motion rulings): one-off outcomes are carried by milestones, so a
- *    verdict or argument never comes back as a weekly rate. Weights halve every
+ *    researched cases (step 10) only recurring docket activity counts (filings,
+ *    and motion rulings at their expected value under the case's grant rate):
+ *    one-off outcomes are carried by milestones, so a verdict or argument never
+ *    comes back as a weekly rate. In each projected week the own rate is scaled
+ *    by the expected pace then ÷ the expected pace over the history weeks, so a
+ *    busy trial phase isn't carried past a verdict and a case ending removes
+ *    its share of the pace (falls back to the open share for tiny paces). Weights halve every
  *    `halfLifeWeeks` weeks back. Only "observed" weeks count: weeks after the
  *    pool's first approved event (before that nothing was being recorded) and
  *    after their earliest active case started. Weeks with no events count as 0.
@@ -55,14 +59,17 @@
  *    approved event would have shown (a sentencing leaves no event, so its
  *    passed window means "probably happened", not "didn't happen"). Approved
  *    events after the research date resolve the milestone that could have
- *    produced them (resolveMilestones), preferring a non-terminal explanation;
- *    a resolved terminal milestone ends the case.
+ *    produced them (resolveMilestones), preferring a non-terminal explanation.
+ *    A case ends at a resolved terminal milestone or an `endsCase` outcome (an
+ *    acquittal), and then nothing about it is projected; survival before that
+ *    counts terminal milestones and endsCase outcomes by their share.
  *
  * No subjective labels anywhere: outputs are numbers and the factual inputs
  * behind them.
  */
 import {
   activityRates,
+  endShare,
   milestoneOutcomePoints,
   milestoneTiming,
   milestoneValue,
@@ -110,6 +117,10 @@ const MIN_SPREAD = 0.3;
 const EXTRA_SPREAD = 0.7;
 /** If at least this share of weeks is expected to be scoreless, the range includes 0. */
 const ZERO_WEEK_SHARE = 0.2;
+/** Own history is scaled by expected pace now ÷ during history, when that history pace is at least this (points/week)… */
+const PACE_EPS = 0.25;
+/** …and by at most this factor. */
+const MAX_PACE_RATIO = 2;
 
 /**
  * Fallback event frequencies, used only when the pool has no approved events
@@ -586,6 +597,9 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     /** Docket pace after the outlook's activityAfter milestone, and the chance it has happened before each week. */
     afterActivity: ActivityRates | null;
     after: Map<number, number>;
+    /** Week of the approved event that resolved the activityAfter milestone (history after it is at the new pace). */
+    phaseResolvedWeek: number | null;
+    phaseResolvedOn: string | null;
   };
   const eventsByCase = new Map<string, ScoringEventInput[]>();
   for (const e of events) {
@@ -599,7 +613,7 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
   const milestoneEvents = new Set<string>();
   for (const c of input.cases) {
     if (c.status !== "active" || !c.outlook) continue;
-    const { resolved, ended, endedOn, consumed } = resolveMilestones(c.outlook, eventsByCase.get(c.id) ?? [], seasonStart);
+    const { resolved, resolvedOn, ended, consumed } = resolveMilestones(c.outlook, eventsByCase.get(c.id) ?? [], seasonStart);
     for (const id of consumed) milestoneEvents.add(id);
     const live: LiveMilestone[] = [];
     const liveByIndex = new Map<number, LiveMilestone>();
@@ -609,16 +623,17 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
       live.push(lm);
       liveByIndex.set(i, lm);
     });
-    // Survival: chance the case is still open at the start of each week (terminal milestones end it).
-    // Weeks from `from` up to the target count, so an ending during the in-progress week lowers it.
+    // Survival: chance the case is still open at the start of each week. Terminal milestones end it, and so
+    // do the endsCase outcomes (e.g. an acquittal) of other milestones. Weeks from `from` up to the target
+    // count, so an ending during the in-progress week lowers it.
     const survival = new Map<number, number>();
-    const terminals = live.filter((x) => x.m.terminal);
-    const done = terminals.map((x) => x.happenedUnseen);
+    const enders = live.map((x) => ({ x, share: endShare(x.m) })).filter((e) => e.share > 0);
+    const done = enders.map((e) => (e.x.m.terminal ? e.x.happenedUnseen : 0));
     for (let w = from; w <= lastWeek; w++) {
       let s = ended ? 0 : 1;
-      terminals.forEach((t, i) => (s *= 1 - Math.min(1, done[i])));
+      enders.forEach((e, i) => (s *= 1 - Math.min(1, done[i])));
       if (w >= target) survival.set(w, s);
-      terminals.forEach((t, i) => (done[i] += t.probs.get(w) ?? 0));
+      enders.forEach((e, i) => (done[i] += (e.x.probs.get(w) ?? 0) * e.share));
     }
     // Activity after a phase milestone (e.g. a verdict): share of each week after it.
     const phase = c.outlook.milestones.findIndex((m) => m.activityAfter);
@@ -631,22 +646,18 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
         cum += lm?.probs.get(w) ?? 0;
       }
     }
-    // Once the case has ended, only milestones that come after the ending event (e.g. post-trial motions)
-    // remain, and only if it ended at its last stage: if a terminal stage it skipped was still ahead (a plea
-    // before a scheduled trial), milestones that follow that stage can't happen either.
-    const skippedLaterStage = live.some((x) => x.m.terminal && endedOn !== null && x.m.windowStart > endedOn);
-    const remaining = ended
-      ? skippedLaterStage
-        ? []
-        : live.filter((x) => !x.m.terminal && endedOn !== null && x.m.windowStart > endedOn)
-      : live;
+    // A case that has ended has nothing left: terminal means nothing comes after it (post-trial motions
+    // belong after a non-terminal verdict, whose acquittal outcome is what ends the case).
+    const phaseResolvedOn = phase >= 0 && resolved.has(phase) ? (resolvedOn.get(phase) ?? null) : null;
     outlookState.set(c.id, {
       outlook: c.outlook,
       ended,
-      milestones: remaining,
+      milestones: ended ? [] : live,
       survival,
       afterActivity: phase >= 0 ? (c.outlook.milestones[phase].activityAfter ?? null) : null,
       after,
+      phaseResolvedWeek: phaseResolvedOn ? weekOf(phaseResolvedOn) : null,
+      phaseResolvedOn,
     });
   }
 
@@ -710,12 +721,22 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
   // approved event resolves them), so a verdict, an argument or a ruling that resolved a milestone
   // must not come back as a weekly rate.
   // Cases without an outlook keep every event, since their pool prior averages the one-offs too.
+  // Routine rulings on researched cases count at their expected value under the case's grant rate, so one
+  // denial (often the expected result) doesn't swing a whole season: how often rulings come is the signal.
   const RECURRING: ReadonlySet<string> = new Set(["filing", "motion_granted", "motion_denied"]);
-  const activeEvents = events.filter((e) => {
-    const c = e.caseId ? caseById.get(e.caseId)! : null;
-    if (c && c.status !== "active") return false;
-    return !(c && outlookState.has(c.id)) || (RECURRING.has(e.type) && !milestoneEvents.has(e.id));
-  });
+  const activeEvents = events
+    .filter((e) => {
+      const c = e.caseId ? caseById.get(e.caseId)! : null;
+      if (c && c.status !== "active") return false;
+      return !(c && outlookState.has(c.id)) || (RECURRING.has(e.type) && !milestoneEvents.has(e.id));
+    })
+    .map((e): ScoringEventInput => {
+      const st = e.caseId ? outlookState.get(e.caseId) : undefined;
+      if (!st || !e.side || (e.type !== "motion_granted" && e.type !== "motion_denied")) return e;
+      const rates = st.afterActivity && st.phaseResolvedOn && e.occurredOn > st.phaseResolvedOn ? st.afterActivity : st.outlook.activity;
+      const g = rates.grantRate[e.side];
+      return { ...e, type: "custom", customPoints: g * scoring.values.motion_granted + (1 - g) * scoring.values.motion_denied };
+    });
   const ownPoints = pointsFor(activeEvents);
   const decay = (w: number) => Math.pow(0.5, (H - w) / opts.halfLifeWeeks);
 
@@ -729,25 +750,30 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     // Per-unit weekly rates: the case's researched activity when there is one (switching to the pace
     // after its activityAfter milestone as that becomes likely), else the typical rate.
     const k = l.kind === "firm" ? mult : 1;
+    const scaled = (r: CaseRates): CaseRates => ({ other: k * r.other, filing: k * r.filing, events: k > 0 ? r.events : 0 });
     const unitRates = units.map((u) => {
       const st = outlookState.get(u.caseId);
       if (st) {
-        const r0 = activityRates(st.outlook, u.side, scoring);
-        const r1 = st.afterActivity ? activityRates(st.afterActivity, u.side, scoring) : r0;
+        const r0 = scaled(activityRates(st.outlook, u.side, scoring));
+        const r1 = st.afterActivity ? scaled(activityRates(st.afterActivity, u.side, scoring)) : r0;
+        const resolvedWeek = st.phaseResolvedWeek;
         return {
+          start: u.start,
           at: (w: number): CaseRates => {
             const a = st.after.get(w) ?? 0;
             return {
-              other: k * ((1 - a) * r0.other + a * r1.other),
-              filing: k * ((1 - a) * r0.filing + a * r1.filing),
-              events: k > 0 ? (1 - a) * r0.events + a * r1.events : 0,
+              other: (1 - a) * r0.other + a * r1.other,
+              filing: (1 - a) * r0.filing + a * r1.filing,
+              events: (1 - a) * r0.events + a * r1.events,
             };
           },
+          /** The pace in a history week: after the activityAfter milestone once an approved event resolved it. */
+          hist: (w: number): CaseRates => (resolvedWeek !== null && w > resolvedWeek ? r1 : r0),
           survival: st.survival as Map<number, number> | null,
         };
       }
       const r = groupRate(l, u.caseType);
-      return { at: (): CaseRates => r, survival: null as Map<number, number> | null };
+      return { start: u.start, at: (): CaseRates => r, hist: (): CaseRates => r, survival: null as Map<number, number> | null };
     });
     const filingCap = scoring.filingWeeklyCap * k;
     const priorAt = (w: number) => {
@@ -755,6 +781,8 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
       let filing = 0;
       let evs = 0;
       let open = 0;
+      let paceOpen = 0;
+      let pace = 0;
       for (const u of unitRates) {
         const s = u.survival ? (u.survival.get(w) ?? 0) : 1;
         const r = u.at(w);
@@ -762,8 +790,13 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
         filing += r.filing * s;
         evs += r.events * s;
         open += s;
+        const p = Math.abs(r.other) + r.filing;
+        pace += p;
+        paceOpen += p * s;
       }
-      return { rate: other + clamp(filing, 0, filingCap), events: evs, open: unitRates.length ? open / unitRates.length : 1 };
+      // Share of their expected docket pace still open (a quiet case ending barely matters).
+      const openShare = pace > 0 ? paceOpen / pace : unitRates.length ? open / unitRates.length : 1;
+      return { rate: other + clamp(filing, 0, filingCap), events: evs, open: openShare };
     };
     const priorTarget = priorAt(target);
     const priorRate = priorTarget.rate;
@@ -789,11 +822,31 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     const kOwn = opts.ownShrinkageWeeks;
     const ownWeight = observedWeeks / (observedWeeks + kOwn);
 
-    // Weekly expectation: blended base (scaled by the chance its cases are still open) + scheduled events.
+    // The pace their cases were expected to have over the history weeks (recency-weighted, all open): own
+    // history is scaled by how the expected pace changes from then to each projected week, so a busy trial
+    // phase isn't carried past the verdict and a case ending scales history by its share of the pace.
+    let histSum = 0;
+    let histW = 0;
+    for (let w = lo; w <= H; w++) {
+      let other = 0;
+      let filing = 0;
+      for (const u of unitRates) {
+        if (w < u.start) continue;
+        const r = u.hist(w);
+        other += r.other;
+        filing += r.filing;
+      }
+      histSum += decay(w) * (other + clamp(filing, 0, filingCap));
+      histW += decay(w);
+    }
+    const priorHist = histW > 0 ? histSum / histW : 0;
+    const ownScale = (p: { rate: number; open: number }) => (priorHist > PACE_EPS ? clamp(p.rate / priorHist, 0, MAX_PACE_RATIO) : p.open);
+
+    // Weekly expectation: blended base (own history scaled by the expected pace) + scheduled events.
     const scheduled = activeCases > 0 || lawyerSpecific.has(l.id) ? milestonesFor(l) : [];
     const expectedAt = (w: number): { points: number; scheduledPoints: number; events: number } => {
       const p = priorAt(w);
-      const base = activeCases > 0 ? ownWeight * (ownRate ?? 0) * p.open + (1 - ownWeight) * p.rate : 0;
+      const base = activeCases > 0 ? ownWeight * (ownRate ?? 0) * ownScale(p) + (1 - ownWeight) * p.rate : 0;
       let sched = 0;
       let schedEvents = 0;
       for (const m of scheduled) {
@@ -818,7 +871,8 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     }
 
     const priorActivity = 1 - Math.exp(-Math.max(0, atTarget.events));
-    const activity = activeCases > 0 || scheduled.length > 0 ? ownWeight * ownActivity + (1 - ownWeight) * priorActivity : 0;
+    const activity =
+      activeCases > 0 || scheduled.length > 0 ? ownWeight * ownActivity * priorTarget.open + (1 - ownWeight) * priorActivity : 0;
     const spread = MIN_SPREAD + EXTRA_SPREAD * (kOwn / (observedWeeks + kOwn));
     // Base range (activity + own history) around the base only; the target week's scheduled outcomes are mixed in.
     const base = atTarget.points - atTarget.scheduledPoints;

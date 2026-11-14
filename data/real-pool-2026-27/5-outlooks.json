@@ -1032,7 +1032,8 @@
          "side": "defendant",
          "lawyerName": null
         }
-       ]
+       ],
+       "endsCase": true
       }
      ],
      "sourceUrl": "https://storage.courtlistener.com/recap/gov.uscourts.cand.474095/gov.uscourts.cand.474095.59.0.pdf"
@@ -2867,7 +2868,7 @@
      "plaintiff": 0.7,
      "defendant": 0.5
     },
-    "basis": "Current pace: 10 entries (ECF 84–93) from Aug 14 to Nov 14, 2026, about 0.77 per week. Measured from ECF 83 (07-24) to ECF 93 (11-10), it is 10 entries in 15.6 weeks, about 0.64 per week. There were no entries at all between Jul 24 and Sep 1. Using the guide's heuristic, that is about 0.2–0.23 substantive filings per week in total (about 0.1–0.12 per side) and about 0.05–0.06 rulings per week. The visible recent filings are routine: defense travel motions ECF 85 and ECF 93, and the government's speedy-trial report ECF 84 and discovery response ECF 88. Every defense ruling so far has been a gra"
+    "basis": "Current pace: 10 entries (ECF 84–93) from Aug 14 to Nov 14, 2026, about 0.77 per week. Measured from ECF 83 (07-24) to ECF 93 (11-10), it is 10 entries in 15.6 weeks, about 0.64 per week. There were no entries at all between Jul 24 and Sep 1. Rates above are the pre-verdict pace per open week. After a verdict the case stays open (post-trial motions, sentencing papers): 0.32/0.45 filings, 0.041/0.058 rulings (multi-defendant; co-defendants who plead remain for sentencing, so acquittal is blended in at a low pace)."
    },
    "milestones": [
     {
@@ -2875,7 +2876,7 @@
      "windowStart": "2027-02-08",
      "windowEnd": "2027-04-09",
      "probability": 0.22,
-     "terminal": true,
+     "terminal": false,
      "outcomes": [
       {
        "probability": 0.83,
@@ -2915,7 +2916,21 @@
        "events": []
       }
      ],
-     "sourceUrl": "https://storage.courtlistener.com/recap/gov.uscourts.flsd.701677/gov.uscourts.flsd.701677.70.0.pdf"
+     "sourceUrl": "https://storage.courtlistener.com/recap/gov.uscourts.flsd.701677/gov.uscourts.flsd.701677.70.0.pdf",
+     "activityAfter": {
+      "filingsPerWeek": {
+       "plaintiff": 0.32,
+       "defendant": 0.45
+      },
+      "rulingsPerWeek": {
+       "plaintiff": 0.041,
+       "defendant": 0.058
+      },
+      "grantRate": {
+       "plaintiff": 0.6,
+       "defendant": 0.35
+      }
+     }
     },
     {
      "label": "Guilty plea by Edwin Cherfilus (represented by AFPD Srilekha Jayanthi) before trial",
@@ -3079,7 +3094,7 @@
      "plaintiff": 0.6,
      "defendant": 0.45
     },
-    "basis": "Docket pace: ECF 89 (2026-07-10) to ECF 193 (2026-11-06) is 104 entries in about 17 weeks (6.1 per week). ECF 127 (2026-08-07) to ECF 193 is 66 entries in about 13 weeks (5.1 per week). Many of these entries do not score: sealed documents, filings by the non-party Chapter 7 trustee over the Rule 17 subpoena (ECF 141, 144, 145, 151, 152, 164, 165, 169, 177), pro hac vice papers and scheduling letters. Applying the guide's ~30% substantive share to ~5.5 entries a week gives about 1.7 party filings a week. The defense files more: the motion to suppress and reply, the Rule 17 subpoena motion (Sept"
+    "basis": "Docket pace: ECF 89 (2026-07-10) to ECF 193 (2026-11-06) is 104 entries in about 17 weeks (6.1 per week). ECF 127 (2026-08-07) to ECF 193 is 66 entries in about 13 weeks (5.1 per week). Rates above are the pre-verdict pace per open week. After a verdict the case stays open (post-trial motions, sentencing papers): 0.2/0.25 filings, 0.025/0.035 rulings (single defendant; acquittal of all ends the case)."
    },
    "milestones": [
     {
@@ -3156,7 +3171,7 @@
      "windowStart": "2027-01-25",
      "windowEnd": "2027-03-15",
      "probability": 0.32,
-     "terminal": true,
+     "terminal": false,
      "outcomes": [
       {
        "probability": 0.83,
@@ -3188,7 +3203,8 @@
          "side": "plaintiff",
          "lawyerName": null
         }
-       ]
+       ],
+       "endsCase": true
       },
       {
        "probability": 0.05,
@@ -3196,7 +3212,21 @@
        "events": []
       }
      ],
-     "sourceUrl": "https://natlawreview.com/article/federal-judge-grants-evidentiary-hearing-motion-suppress-tricolor-criminal-case"
+     "sourceUrl": "https://natlawreview.com/article/federal-judge-grants-evidentiary-hearing-motion-suppress-tricolor-criminal-case",
+     "activityAfter": {
+      "filingsPerWeek": {
+       "plaintiff": 0.2,
+       "defendant": 0.25
+      },
+      "rulingsPerWeek": {
+       "plaintiff": 0.025,
+       "defendant": 0.035
+      },
+      "grantRate": {
+       "plaintiff": 0.6,
+       "defendant": 0.35
+      }
+     }
     }
    ],
    "sources": [
@@ -3419,7 +3449,7 @@
      "plaintiff": 0.6,
      "defendant": 0.4
     },
-    "basis": "ECF 101 (2026-05-28) to ECF 127 (2026-07-31): 26 entries in 9.1 weeks, about 2.8/week. No later ECF numbers found. Guide method: 30% substantive gives 0.85 party filings/week; 8% rulings gives 0.23/week. Filings raised to about 1.25/week total because the season covers the run-up to the Feb. 8 trial (motions in limine Nov. 12-13, then oppositions, replies, requests to charge, trial letters): government 0.65, defense 0.6 (includes co-defendant filings). Rulings: government 0.10, defense 0.12 (the defense moves more). Grant rates 0.6/0.4 (Rozier's July 8 bail request was denied)."
+    "basis": "ECF 101 (2026-05-28) to ECF 127 (2026-07-31): 26 entries in 9.1 weeks, about 2.8/week. No later ECF numbers found. Guide method: 30% substantive gives 0.85 party filings/week; 8% rulings gives 0.23/week. Filings raised to about 1.25/week total because the season covers the run-up to the Feb. 8 trial (motions in limine Nov. Rates above are the pre-verdict pace per open week. After a verdict the case stays open (post-trial motions, sentencing papers): 0.32/0.45 filings, 0.041/0.058 rulings (multi-defendant; pleaded co-defendants remain for sentencing, so acquittal is blended in at a low pace)."
    },
    "milestones": [
     {
@@ -3480,7 +3510,7 @@
      "windowStart": "2027-02-08",
      "windowEnd": "2027-03-12",
      "probability": 0.45,
-     "terminal": true,
+     "terminal": false,
      "outcomes": [
       {
        "probability": 0.83,
@@ -3520,14 +3550,28 @@
        "events": []
       }
      ],
-     "sourceUrl": "https://www.espn.com/nba/story/_/id/50472807/terry-rozier-unders-bet-hornets-teammate"
+     "sourceUrl": "https://www.espn.com/nba/story/_/id/50472807/terry-rozier-unders-bet-hornets-teammate",
+     "activityAfter": {
+      "filingsPerWeek": {
+       "plaintiff": 0.32,
+       "defendant": 0.45
+      },
+      "rulingsPerWeek": {
+       "plaintiff": 0.041,
+       "defendant": 0.058
+      },
+      "grantRate": {
+       "plaintiff": 0.6,
+       "defendant": 0.35
+      }
+     }
     },
     {
      "label": "Guilty plea by Rozier before trial",
      "windowStart": "2026-11-30",
      "windowEnd": "2027-02-08",
      "probability": 0.15,
-     "terminal": true,
+     "terminal": false,
      "outcomes": [
       {
        "probability": 0.6,
@@ -3786,18 +3830,18 @@
    "stage": "A jury convicted Bradley Heppner on all four counts tried on May 7, 2026. Sentencing was first set for Oct 7, 2026 and then Oct 21, 2026, was adjourned after defense counsel changed in October, and is now set for Jan 11, 2027 before Judge Jed S. Rakoff.",
    "activity": {
     "filingsPerWeek": {
-     "plaintiff": 0.28,
-     "defendant": 0.35
+     "plaintiff": 0.18,
+     "defendant": 0.2
     },
     "rulingsPerWeek": {
-     "plaintiff": 0.1,
-     "defendant": 0.05
+     "plaintiff": 0.064,
+     "defendant": 0.03
     },
     "grantRate": {
      "plaintiff": 0.85,
      "defendant": 0.5
     },
-    "basis": "No ECF numbers from the last 3 months are publicly available: CourtListener's HTML and API need authentication, the Law360 docket is paywalled, and GovInfo has no package for this case. Rates are therefore built from the known schedule. Sentencing is set for Jan 11, 2027 (moved Oct 7 to Oct 21, then adjourned, then reset). The case is expected to stay open about 6 weeks into the season, longer if sentencing is adjourned again.\n\nExpected substantive filings before judgment:\n- Defense: sentencing memorandum (1), supplemental or reply submissions (~0.5), forfeiture or restitution objections (~0.5"
+    "basis": "No ECF numbers from the last 3 months are publicly available: CourtListener's HTML and API need authentication, the Law360 docket is paywalled, and GovInfo has no package for this case. Rates are therefore built from the known schedule. Sentencing is set for Jan 11, 2027 (moved Oct 7 to Oct 21, then adjourned, then reset). Rates are the expected in-season counts divided by the model's ~12.6 expected open weeks (sentencing p 0.9 over Jan 11-Mar 15): government 0.18 filings, 0.064 rulings; defense 0.20 filings, 0.03 rulings."
    },
    "milestones": [
     {
@@ -3920,7 +3964,7 @@
      "plaintiff": 0.65,
      "defendant": 0.35
     },
-    "basis": "Docket pace: ECF 756 (filed Jul 21) to ECF 839 (Sep 4) is about 13 entries per week, and ECF 839 to ECF 913 (by Oct 20) is about 11 per week during trial. The guide's heuristic (30% substantive, 8% rulings) would give about 3.4 party filings per week (about 1.7 per side) and about 0.9 rulings per week, but that is the pace while evidence is being taken, and many of those entries are daily trial minute entries. Closings are set for Nov 16, so the evidence closes before the season. Season activity is therefore mostly post-verdict practice: renewed Rule 29 and Rule 33 motions with memoranda (four"
+    "basis": "Docket pace: ECF 756 (filed Jul 21) to ECF 839 (Sep 4) is about 13 entries per week, and ECF 839 to ECF 913 (by Oct 20) is about 11 per week during trial. The guide's heuristic (30% substantive, 8% rulings) would give about 3.4 party filings per week (about 1.7 per side) and about 0.9 rulings per week, but that is the pace while evidence is being taken, and many of those entries are daily trial minute entries. An in-season acquittal of all defendants ends the case (endsCase); the rates stay the post-verdict blend (scaled 0.88), a small accepted double discount."
    },
    "milestones": [
     {
@@ -3960,7 +4004,8 @@
          "side": "plaintiff",
          "lawyerName": null
         }
-       ]
+       ],
+       "endsCase": true
       },
       {
        "probability": 0.05,
@@ -4154,7 +4199,7 @@
      "plaintiff": 0.65,
      "defendant": 0.35
     },
-    "basis": "No ECF counts are public (no RECAP docket). Trial set Feb 9, 2027; pretrial motions were due Sept 11 and replies Nov 9, 2026 (Inner City Press, Jul 1, 2026). Rates are expected filings per open week across scenarios matching the 0.30 trial milestone: trial holds (0.3, ~17 open weeks) gov 1.3/def 2.0 (Storm 2025 trial-phase pace 2.6/3.2); short slip (0.3) 0.8/1.0; slip past May (0.4) 0.4/0.5. Result 0.75/1.0, in line with Chu (SDNY, measured, 0.8/1.1). Rulings: pending severance and Sept. motions."
+    "basis": "No ECF counts are public (no RECAP docket). Trial set Feb 9, 2027; pretrial motions were due Sept 11 and replies Nov 9, 2026 (Inner City Press, Jul 1, 2026). Rates above are the pre-verdict pace per open week. After a verdict the case stays open (post-trial motions, sentencing papers): 0.35/0.5 filings, 0.045/0.065 rulings (both defendants tried together; acquittal of all ends the case)."
    },
    "milestones": [
     {
@@ -4162,7 +4207,7 @@
      "windowStart": "2027-02-09",
      "windowEnd": "2027-04-05",
      "probability": 0.3,
-     "terminal": true,
+     "terminal": false,
      "outcomes": [
       {
        "probability": 0.83,
@@ -4194,7 +4239,8 @@
          "side": "plaintiff",
          "lawyerName": null
         }
-       ]
+       ],
+       "endsCase": true
       },
       {
        "probability": 0.05,
@@ -4202,7 +4248,21 @@
        "events": []
       }
      ],
-     "sourceUrl": "https://innercitypress.com/sdny120ctorresfirstbrandjamesicp070126.html"
+     "sourceUrl": "https://innercitypress.com/sdny120ctorresfirstbrandjamesicp070126.html",
+     "activityAfter": {
+      "filingsPerWeek": {
+       "plaintiff": 0.35,
+       "defendant": 0.5
+      },
+      "rulingsPerWeek": {
+       "plaintiff": 0.045,
+       "defendant": 0.065
+      },
+      "grantRate": {
+       "plaintiff": 0.6,
+       "defendant": 0.35
+      }
+     }
     },
     {
      "label": "Guilty plea by Edward James before trial",
@@ -4316,7 +4376,7 @@
      "plaintiff": 0.5,
      "defendant": 0.5
     },
-    "basis": "No docket sheet or recent ECF-numbered entries could be reached. CourtListener returned 401/403 (its API needs a token), Justia returned 403, and the web-search budget was used up. The only dated entries found are ECF 1 (2024-12-10) and the continuance reported 2026-08-13, so an entries-per-week rate cannot be computed. The estimate therefore uses the guide's 'ordinary active district case' range (0.3-1.0 filings/side/week), held toward the low end: there is one defendant, the case has been quiet pretrial, and the government is set slightly above the defense because it usually files more pretr"
+    "basis": "No docket sheet or recent ECF-numbered entries could be reached. CourtListener returned 401/403 (its API needs a token), Justia returned 403, and the web-search budget was used up. The only dated entries found are ECF 1 (2024-12-10) and the continuance reported 2026-08-13, so an entries-per-week rate cannot be computed. Rates above are the pre-verdict pace per open week. After a verdict the case stays open (post-trial motions, sentencing papers): 0.2/0.25 filings, 0.025/0.035 rulings (single defendant; acquittal of all ends the case)."
    },
    "milestones": [
     {
@@ -4324,7 +4384,7 @@
      "windowStart": "2027-03-01",
      "windowEnd": "2027-03-22",
      "probability": 0.25,
-     "terminal": true,
+     "terminal": false,
      "outcomes": [
       {
        "probability": 0.83,
@@ -4356,7 +4416,8 @@
          "side": "plaintiff",
          "lawyerName": null
         }
-       ]
+       ],
+       "endsCase": true
       },
       {
        "probability": 0.05,
@@ -4364,7 +4425,21 @@
        "events": []
       }
      ],
-     "sourceUrl": "https://www.justice.gov/criminal/criminal-vns/case/united-states-v-philip-verges"
+     "sourceUrl": "https://www.justice.gov/criminal/criminal-vns/case/united-states-v-philip-verges",
+     "activityAfter": {
+      "filingsPerWeek": {
+       "plaintiff": 0.2,
+       "defendant": 0.25
+      },
+      "rulingsPerWeek": {
+       "plaintiff": 0.025,
+       "defendant": 0.035
+      },
+      "grantRate": {
+       "plaintiff": 0.6,
+       "defendant": 0.35
+      }
+     }
     },
     {
      "label": "Guilty plea by Philip Verges before trial",
@@ -4453,7 +4528,7 @@
      "plaintiff": 0.65,
      "defendant": 0.4
     },
-    "basis": "Docket pace: ECF 281 (2026-03-09) to ECF 308 (2026-10-16) is 27 entries in 31.6 weeks, about 0.85 per week. ECF 298 (2026-08-03) to ECF 308 is 10 entries in 10.6 weeks, about 0.94 per week.\n\nSubstantive party filings, counted directly. Excluded: scheduling and availability letters (ECF 281, 287, 294), notices of appearance and withdrawal, the travel request (ECF 292) and transcripts. Mar 9–Oct 16: government 5 (ECF 283, 286, 301, 304, 305), about 0.16 per week; defense 6 (ECF 282, 289, 295, 298, 302, 306), about 0.19 per week. Aug 3–Oct 16: government 3 (ECF 301, 304, 305) and defense 3 (ECF 2"
+    "basis": "Docket pace: ECF 281 (2026-03-09) to ECF 308 (2026-10-16) is 27 entries in 31.6 weeks, about 0.85 per week. ECF 298 (2026-08-03) to ECF 308 is 10 entries in 10.6 weeks, about 0.94 per week.\n\nSubstantive party filings, counted directly. Rates above are the pre-verdict pace per open week. After a verdict the case stays open (post-trial motions, sentencing papers): 0.2/0.25 filings, 0.025/0.035 rulings (sentencing on the Count Two conviction follows either way)."
    },
    "milestones": [
     {
@@ -4494,7 +4569,8 @@
          "side": "defendant",
          "lawyerName": null
         }
-       ]
+       ],
+       "endsCase": true
       }
      ],
      "sourceUrl": "https://storage.courtlistener.com/recap/gov.uscourts.nysd.604938/gov.uscourts.nysd.604938.290.0.pdf"
@@ -4504,7 +4580,7 @@
      "windowStart": "2027-04-26",
      "windowEnd": "2027-05-24",
      "probability": 0.25,
-     "terminal": true,
+     "terminal": false,
      "outcomes": [
       {
        "probability": 0.6,
@@ -4544,7 +4620,21 @@
        "events": []
       }
      ],
-     "sourceUrl": "https://storage.courtlistener.com/recap/gov.uscourts.nysd.604938/gov.uscourts.nysd.604938.300.0.pdf"
+     "sourceUrl": "https://storage.courtlistener.com/recap/gov.uscourts.nysd.604938/gov.uscourts.nysd.604938.300.0.pdf",
+     "activityAfter": {
+      "filingsPerWeek": {
+       "plaintiff": 0.2,
+       "defendant": 0.25
+      },
+      "rulingsPerWeek": {
+       "plaintiff": 0.025,
+       "defendant": 0.035
+      },
+      "grantRate": {
+       "plaintiff": 0.6,
+       "defendant": 0.35
+      }
+     }
     },
     {
      "label": "Guilty plea by Roman Storm before the retrial (no plea discussions publicly reported)",
@@ -4638,18 +4728,18 @@
      "plaintiff": 0.6,
      "defendant": 0.35
     },
-    "basis": "Docket pace: ECF 351 (2026-09-14) to ECF 439 (2026-10-24) is 88 entries in 40 days, ~15.4/week (ECF 388-439, during trial: ~16.2/week). Guide method: 30% substantive party filings = ~4.6/week, trimmed to 4.2 for the late-December holiday recess; split 40/60 government/defense (four separately represented defendants) = 1.6/2.6. Rulings at 8% = ~1.2/week, trimmed to 1.0, split 0.4/0.6. Grant rates 0.6 government / 0.35 defense: defense motions denied Apr 2026, Sep 21 and Oct 24 (ECF 439); ECF 388 restricted defense references."
+    "basis": "Docket pace: ECF 351 (2026-09-14) to ECF 439 (2026-10-24) is 88 entries in 40 days, ~15.4/week (ECF 388-439, during trial: ~16.2/week). Guide method: 30% substantive party filings = ~4.6/week, trimmed to 4.2 for the late-December holiday recess; split 40/60 government/defense (four separately represented defendants) = 1.6/2.6. After the verdict (if any defendant is convicted or the jury hangs): 0.352/0.545 filings, 0.041/0.0625 rulings (post-conviction pace 0.35/0.55, hung-jury retrial prep; acquittal of all ends the case and is excluded)."
    },
    "milestones": [
     {
      "label": "Jury verdict in the ongoing four-defendant trial (began Oct 13, 2026; now expected to run into December 2026)",
      "windowStart": "2026-12-04",
      "windowEnd": "2027-01-11",
-     "probability": 0.94,
+     "probability": 1,
      "terminal": false,
      "outcomes": [
       {
-       "probability": 0.83,
+       "probability": 0.7802,
        "label": "Conviction of at least one defendant on at least one count",
        "events": [
         {
@@ -4665,7 +4755,7 @@
        ]
       },
       {
-       "probability": 0.12,
+       "probability": 0.1128,
        "label": "Acquittal of all defendants on all counts",
        "events": [
         {
@@ -4678,23 +4768,29 @@
          "side": "plaintiff",
          "lawyerName": null
         }
-       ]
+       ],
+       "endsCase": true
       },
       {
-       "probability": 0.05,
+       "probability": 0.047,
        "label": "Hung jury / mistrial",
+       "events": []
+      },
+      {
+       "probability": 0.06,
+       "label": "No verdict in this window (verdict before Nov 30, mistrial before deliberations, or every defendant pleads)",
        "events": []
       }
      ],
      "sourceUrl": "https://www.nbcbayarea.com/news/local/sheng-thao-corruption-trial-witness-credibility/4175220/",
      "activityAfter": {
       "filingsPerWeek": {
-       "plaintiff": 0.31,
-       "defendant": 0.48
+       "plaintiff": 0.352,
+       "defendant": 0.545
       },
       "rulingsPerWeek": {
-       "plaintiff": 0.036,
-       "defendant": 0.055
+       "plaintiff": 0.041,
+       "defendant": 0.0625
       },
       "grantRate": {
        "plaintiff": 0.6,

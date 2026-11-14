@@ -115,7 +115,13 @@ describe("resolving milestones from approved events", () => {
 
   it("an event of the same type and side after the research date resolves it (and a terminal one ends the case)", () => {
     const o = outlook({ milestones: [milestone({})] }); // appeal_won for either side
-    expect(resolveMilestones(o, [ev("appeal_won", "2026-12-01", "plaintiff")], SEASON)).toEqual({ resolved: new Set([0]), ended: true, endedOn: "2026-12-01", consumed: new Set() });
+    expect(resolveMilestones(o, [ev("appeal_won", "2026-12-01", "plaintiff")], SEASON)).toEqual({
+      resolved: new Set([0]),
+      resolvedOn: new Map([[0, "2026-12-01"]]),
+      ended: true,
+      endedOn: "2026-12-01",
+      consumed: new Set(),
+    });
     expect(resolveMilestones(o, [ev("appeal_won", "2026-10-01", "plaintiff")], SEASON).resolved.size).toBe(0);
     expect(resolveMilestones(o, [ev("filing", "2026-12-01", "plaintiff")], SEASON).resolved.size).toBe(0);
     const oneSided = outlook({ milestones: [milestone({ outcomes: [{ probability: 1, label: "x", events: [side("dismissed_favorable", "defendant")] }] })] });
@@ -390,20 +396,108 @@ describe("projectPool timing, own history and ranges", () => {
     expect(withDenials.restOfSeason).toBe(without.restOfSeason);
   });
 
-  it("a plea before a scheduled trial also rules out post-trial milestones; a verdict keeps them", () => {
+  it("a plea before trial ends the case; a conviction keeps post-trial milestones; an acquittal (endsCase) ends it", () => {
     const s = (type: Milestone["outcomes"][number]["events"][number]["type"], x: "plaintiff" | "defendant") => ({ type, side: x, lawyerId: null });
     const o = outlook({
       milestones: [
         milestone({ label: "Plea", windowStart: "2026-11-30", windowEnd: "2027-01-31", probability: 0.3, terminal: true, outcomes: [{ probability: 1, label: "Plea", events: [s("guilty_plea", "plaintiff"), s("plea_reduced", "defendant")] }] }),
-        milestone({ label: "Trial", windowStart: "2027-02-08", windowEnd: "2027-03-28", probability: 0.5, terminal: true, outcomes: [{ probability: 1, label: "Guilty", events: [s("verdict_win", "plaintiff"), s("verdict_loss", "defendant")] }] }),
+        milestone({
+          label: "Trial",
+          windowStart: "2027-02-08",
+          windowEnd: "2027-03-28",
+          probability: 0.5,
+          terminal: false,
+          outcomes: [
+            { probability: 0.8, label: "Guilty", events: [s("verdict_win", "plaintiff"), s("verdict_loss", "defendant")] },
+            { probability: 0.2, label: "Acquitted", events: [s("verdict_win", "defendant"), s("verdict_loss", "plaintiff")], endsCase: true },
+          ],
+        }),
         milestone({ label: "Rule 29", windowStart: "2027-04-01", windowEnd: "2027-05-30", probability: 0.4, terminal: false, outcomes: [{ probability: 1, label: "Denied", events: [s("motion_denied", "defendant")] }] }),
       ],
     });
     const e = (id: string, type: string, occurredOn: string, x: "plaintiff" | "defendant"): ScoringEventInput => ({ id, type, customPoints: null, occurredOn, caseId: "c1", side: x, lawyerId: null });
     // Week 14 starts Mar 1, 2027.
     expect(runAt(o, 13, 14, 13, [e("p", "plea_reduced", "2026-12-15", "defendant")]).get("d")!.restOfSeason).toBe(0);
-    const afterVerdict = runAt(o, 13, 14, 13, [e("v", "verdict_win", "2027-03-01", "plaintiff")]).get("d")!;
-    expect(afterVerdict.restOfSeason).toBeCloseTo(0.4 * -12, 1); // the Rule 29 ruling remains
+    expect(runAt(o, 13, 14, 13, [e("v", "verdict_win", "2027-03-01", "plaintiff")]).get("d")!.restOfSeason).toBeCloseTo(0.4 * -12, 1);
+    expect(runAt(o, 13, 14, 13, [e("a", "verdict_win", "2027-03-01", "defendant")]).get("d")!.restOfSeason).toBe(0);
+    // A conviction and an acquittal on the same day (co-defendants): the case goes on.
+    const mixed = resolveMilestones(o, [e("a", "verdict_win", "2027-03-01", "defendant"), e("v", "verdict_win", "2027-03-01", "plaintiff")], SEASON);
+    expect(mixed.ended).toBe(false);
+  });
+
+  it("endsCase outcomes lower survival like a terminal milestone, by their share", () => {
+    const busy = { ...quiet, filingsPerWeek: { plaintiff: 1, defendant: 0 } };
+    const o = outlook({
+      activity: busy,
+      milestones: [
+        verdict({
+          windowEnd: "2026-12-13",
+          probability: 1,
+          outcomes: [
+            { probability: 0.8, label: "Guilty", events: [{ type: "verdict_win", side: "plaintiff", lawyerId: null }] },
+            { probability: 0.2, label: "Acquitted", events: [{ type: "verdict_win", side: "defendant", lawyerId: null }], endsCase: true },
+          ],
+        }),
+      ],
+    });
+    const p = runAt(o, -2, 1, 4).get("p")!;
+    // Weeks 1–2 at 4 (the verdict is spread over them), then open 80% of the time; the verdict: 0.5 × 0.8 × 80 in each.
+    expect(p.restOfSeason).toBeCloseTo(4 + 32 + (4 * 0.9 + 32) + 3.2 + 3.2, 1);
+    expect(parseCaseOutlook(outlook({ milestones: [milestone({ terminal: true, outcomes: [{ probability: 1, label: "x", events: [], endsCase: true }] })] }))).toBeNull();
+  });
+
+  it("own history follows the expected pace: a busy trial phase isn't carried past the verdict", () => {
+    const busy = { ...quiet, filingsPerWeek: { plaintiff: 2, defendant: 0 } };
+    const after = { filingsPerWeek: { plaintiff: 0.5, defendant: 0 }, rulingsPerWeek: { plaintiff: 0, defendant: 0 }, grantRate: { plaintiff: 0.5, defendant: 0.5 } };
+    const o = outlook({ activity: busy, milestones: [verdict({ windowEnd: "2026-12-20", probability: 1, activityAfter: after })] });
+    const filing = (d: string, i: number): ScoringEventInput => ({ id: `f${i}`, type: "filing", customPoints: null, occurredOn: d, caseId: "c1", side: "plaintiff", lawyerId: null });
+    const history = ["2026-12-01", "2026-12-02", "2026-12-08", "2026-12-09", "2026-12-15", "2026-12-16"].map(filing);
+    const verdictWin: ScoringEventInput = { id: "v", type: "verdict_win", customPoints: null, occurredOn: "2026-12-17", caseId: "c1", side: "plaintiff", lawyerId: null };
+    const p = runAt(o, 3, 4, 10, [...history, verdictWin]).get("p")!;
+    // Own rate 8/week at the trial pace (8): scaled to the post-verdict pace (2) → 2, blended with the prior 2.
+    expect(p.projectedWeek).toBeCloseTo(2, 1);
+  });
+
+  it("a quiet case ending barely changes a busy lawyer's own-history term", () => {
+    const busy = outlook({ activity: { ...quiet, filingsPerWeek: { plaintiff: 2, defendant: 0 } } });
+    const quietCase = outlook({ activity: { ...quiet, filingsPerWeek: { plaintiff: 0.01, defendant: 0 } }, milestones: [milestone({ windowStart: "2026-12-01", windowEnd: "2027-05-30", probability: 0.5 })] });
+    const ls = [lawyer("x"), lawyer("y")];
+    const ap = [app("x", "c1", "plaintiff"), app("y", "c1", "plaintiff"), app("x", "c2", "plaintiff")];
+    const hist = ["2026-12-01", "2026-12-02", "2026-12-08", "2026-12-09", "2026-12-15", "2026-12-16"].map(
+      (d, i): ScoringEventInput => ({ id: `f${i}`, type: "filing", customPoints: null, occurredOn: d, caseId: "c1", side: "plaintiff", lawyerId: null }),
+    );
+    const decided: ScoringEventInput = { id: "d", type: "appeal_won", customPoints: null, occurredOn: "2026-12-10", caseId: "c2", side: "plaintiff", lawyerId: null };
+    const res = projectPool({
+      lawyers: ls,
+      cases: [
+        { id: "c1", caseType: "civil", status: "active", filedOn: null, outlook: busy },
+        { id: "c2", caseType: "appeal", status: "active", filedOn: null, outlook: quietCase },
+      ],
+      appearances: ap,
+      events: [...hist, decided],
+      scoring,
+      seasonStart: SEASON,
+      historyThroughWeek: 3,
+      remainingWeeks: 10,
+      targetWeek: 4,
+    }).projections;
+    expect(Math.abs(res.get("x")!.projectedWeek - res.get("y")!.projectedWeek)).toBeLessThan(0.1);
+  });
+
+  it("routine rulings count at their expected value in own history; ended cases show no activity", () => {
+    const o = outlook({ activity: { ...quiet, filingsPerWeek: { plaintiff: 1, defendant: 1 }, rulingsPerWeek: { plaintiff: 0, defendant: 0.2 }, grantRate: { plaintiff: 0.5, defendant: 0.5 } } });
+    const f = (d: string, x: "plaintiff" | "defendant", i: number): ScoringEventInput => ({ id: `f${x}${i}`, type: "filing", customPoints: null, occurredOn: d, caseId: "c1", side: x, lawyerId: null });
+    const hist = ["2026-12-01", "2026-12-08", "2026-12-15"].flatMap((d, i) => [f(d, "plaintiff", i), f(d, "defendant", i)]);
+    const ruling = (type: string): ScoringEventInput => ({ id: "r", type, customPoints: null, occurredOn: "2026-12-09", caseId: "c1", side: "defendant", lawyerId: null });
+    const denied = runAt(o, 3, 4, 10, [...hist, ruling("motion_denied")]).get("d")!;
+    const granted = runAt(o, 3, 4, 10, [...hist, ruling("motion_granted")]).get("d")!;
+    expect(denied.restOfSeason).toBe(granted.restOfSeason);
+    // A terminal decision ended the case: nothing projected, no activity.
+    const ended = outlook({ activity: { ...quiet, filingsPerWeek: { plaintiff: 1, defendant: 1 } }, milestones: [milestone({})] });
+    const win: ScoringEventInput = { id: "w", type: "appeal_won", customPoints: null, occurredOn: "2026-12-16", caseId: "c1", side: "plaintiff", lawyerId: null };
+    const after = runAt(ended, 3, 4, 10, [...hist, win]).get("p")!;
+    expect(after.projectedWeek).toBe(0);
+    expect(after.activityRate).toBe(0);
   });
 
   it("activityAfter switches the docket pace once its milestone is likely to have happened", () => {

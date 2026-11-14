@@ -71,3 +71,13 @@ in the files above (details in `reviewCorrections` in `6-research-notes.json`):
 - KalshiEX v. Martin: Rule 28(j) letters are not scored filings (0.5/0.65 → 0.04/0.04 per week).
 - United States v. Google (D.C. Cir.): argument ordered for January 2027 (Oct 9, 2026 order); decision in season 0.28 → 0.44.
 - State of Oregon v. Trump: only substantive motion rulings count (0.02 → 0.005 per side per week).
+
+### Final check (Nov 14, 2026)
+
+A second adversarial check of the model against these outlooks led to these data changes:
+
+- Criminal verdicts no longer end the case (post-trial motions and sentencing papers follow): United States v. Chu, Earnest, Cherfilus-McCormick, Patrick James, Verges and Storm (retrial) now switch to a post-verdict docket pace after the verdict, as Thao already did.
+- An acquittal of every defendant now ends the case where it would (Thao, Huawei, Chu, Patrick James, Verges), as do the case-ending ruling outcomes in Storm (Rule 29 granted in full) and Apple v. Liu (dismissal with prejudice).
+- United States v. Thao: the 6% chance of no verdict in the window is an explicit outcome, so the post-verdict pace applies after the window.
+- United States v. Earnest: Rozier's plea before trial no longer ends the case (Laster's trial goes on).
+- United States v. Heppner: rates divided by the expected open weeks (filings 0.28/0.35 → 0.18/0.20, rulings 0.1/0.05 → 0.064/0.03 per week).

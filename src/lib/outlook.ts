@@ -68,7 +68,15 @@ export const milestoneSchema = z.object({
   terminal: z.boolean(),
   /** Mutually exclusive outcomes; probabilities sum to 1. */
   outcomes: z
-    .array(z.object({ probability: prob, label: z.string().max(120), events: z.array(milestoneEventSchema).max(6) }))
+    .array(
+      z.object({
+        probability: prob,
+        label: z.string().max(120),
+        events: z.array(milestoneEventSchema).max(6),
+        /** This outcome ends the case at this court (e.g. an acquittal), on a milestone that otherwise doesn't. */
+        endsCase: z.boolean().optional(),
+      }),
+    )
     .min(1)
     .max(6),
   sourceUrl: z.string().url().nullable(),
@@ -102,7 +110,13 @@ export function parseCaseOutlook(raw: unknown): CaseOutlook | null {
   if (!r.success) return null;
   const ms = r.data.milestones;
   const valid =
-    ms.every((m) => m.windowEnd >= m.windowStart && outcomesSumToOne(m) && !(m.terminal && m.activityAfter)) &&
+    ms.every(
+      (m) =>
+        m.windowEnd >= m.windowStart &&
+        outcomesSumToOne(m) &&
+        !(m.terminal && m.activityAfter) &&
+        !(m.terminal && m.outcomes.some((o) => o.endsCase)),
+    ) &&
     ms.filter((m) => m.activityAfter).length <= 1;
   return valid ? r.data : null;
 }
@@ -155,6 +169,18 @@ export function observableShare(m: Milestone): number {
   return total > 0 ? Math.min(1, q / total) : 0;
 }
 
+/** Share of a milestone's outcomes that end the case: all of them for a terminal milestone, else its endsCase outcomes. */
+export function endShare(m: Milestone): number {
+  if (m.terminal) return 1;
+  let ends = 0;
+  let total = 0;
+  for (const o of m.outcomes) {
+    total += o.probability;
+    if (o.endsCase) ends += o.probability;
+  }
+  return total > 0 ? Math.min(1, ends / total) : 0;
+}
+
 /**
  * When a milestone happens, given that no approved event has resolved it.
  * Probability is spread evenly over the window's days. Mass in weeks before
@@ -200,15 +226,20 @@ export type ResolvingEvent = { id?: string; type: string; occurredOn: string; si
 /** Rulings that docket activity also produces: they only resolve a milestone inside its window. */
 const ROUTINE_RULINGS: ReadonlySet<string> = new Set(["motion_granted", "motion_denied"]);
 
-/** Could this milestone have produced the approved event? Same type; a lawyer event for the same lawyer, a side event for the same side. */
+/** Could this milestone event have produced the approved event? Same type; a lawyer event for the same lawyer, a side event for the same side. */
+function eventMatches(x: MilestoneEvent, e: ResolvingEvent): boolean {
+  if (x.type === "verdict_loss" || x.type !== e.type) return false;
+  if (x.lawyerId) return e.lawyerId === x.lawyerId;
+  return e.lawyerId === null && (e.side === null || e.side === x.side);
+}
+
+/** Outcomes of the milestone that could have produced the approved event. */
+function matchedOutcomes(m: Milestone, e: ResolvingEvent): Milestone["outcomes"] {
+  return m.outcomes.filter((o) => o.events.some((x) => eventMatches(x, e)));
+}
+
 function couldProduce(m: Milestone, e: ResolvingEvent): boolean {
-  return m.outcomes.some((o) =>
-    o.events.some((x) => {
-      if (x.type === "verdict_loss" || x.type !== e.type) return false;
-      if (x.lawyerId) return e.lawyerId === x.lawyerId;
-      return e.lawyerId === null && (e.side === null || e.side === x.side);
-    }),
-  );
+  return matchedOutcomes(m, e).length > 0;
 }
 
 /**
@@ -223,14 +254,17 @@ function couldProduce(m: Milestone, e: ResolvingEvent): boolean {
  * non-terminal explanation is open), then one whose window contains its date,
  * then the likeliest (probability per window day), then list order. When every
  * open milestone that could explain the event is terminal, the case has ended
- * whichever one it was. Events on the same day that a milestone resolved that
- * day could have produced are absorbed by it (one order denying two motions).
+ * whichever one it was. A non-terminal milestone ends the case when every event
+ * it took could only have come from its endsCase outcomes (an acquittal; a
+ * same-day conviction of anyone keeps it open). Events on the same day that a
+ * milestone resolved that day could have produced are absorbed by it (one
+ * order denying two motions).
  */
 export function resolveMilestones(
   outlook: CaseOutlook,
   caseEvents: readonly ResolvingEvent[],
   seasonStart: string,
-): { resolved: Set<number>; ended: boolean; endedOn: string | null; consumed: Set<string> } {
+): { resolved: Set<number>; resolvedOn: Map<number, string>; ended: boolean; endedOn: string | null; consumed: Set<string> } {
   const ms = outlook.milestones;
   const from = (m: Milestone) => (m.windowStart <= seasonStart ? outlook.asOf : m.windowStart);
   const inWindow = (m: Milestone, d: string) => d >= from(m) && d <= m.windowEnd;
@@ -238,6 +272,12 @@ export function resolveMilestones(
   const resolved = new Set<number>();
   const resolvedOn = new Map<number, string>();
   const consumed = new Set<string>();
+  /** Non-terminal milestones whose events so far all came from endsCase outcomes. */
+  const endsAll = new Map<number, boolean>();
+  const onlyEnding = (i: number, e: ResolvingEvent) => {
+    const matched = matchedOutcomes(ms[i], e);
+    return matched.length > 0 && matched.every((o) => o.endsCase === true);
+  };
   let endedOn: string | null = null;
   const end = (d: string) => {
     if (endedOn === null || d < endedOn) endedOn = d;
@@ -250,6 +290,7 @@ export function resolveMilestones(
     const sameDay = all.find((i) => resolvedOn.get(i) === e.occurredOn);
     if (sameDay !== undefined) {
       if (e.id) consumed.add(e.id);
+      if (endsAll.has(sameDay)) endsAll.set(sameDay, endsAll.get(sameDay)! && onlyEnding(sameDay, e));
       continue; // absorbed by the milestone it resolved today
     }
     const open = all.filter((i) => !resolved.has(i));
@@ -267,8 +308,10 @@ export function resolveMilestones(
     if (e.id) consumed.add(e.id);
     // Non-terminal milestones rank first, so a terminal pick means every open explanation is terminal.
     if (ms[i].terminal) end(e.occurredOn);
+    else endsAll.set(i, onlyEnding(i, e));
   }
-  return { resolved, ended: endedOn !== null, endedOn, consumed };
+  for (const [i, all] of endsAll) if (all) end(resolvedOn.get(i)!);
+  return { resolved, resolvedOn, ended: endedOn !== null, endedOn, consumed };
 }
 
 // ---------------------------------------------------------------------------

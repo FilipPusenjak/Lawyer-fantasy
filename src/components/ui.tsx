@@ -161,7 +161,7 @@ export function Tabs({ items }: { items: { href: string; label: string; active: 
           key={t.href}
           href={t.href}
           className={cx(
-            "flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-center text-sm font-semibold",
+            "flex min-h-11 flex-1 items-center justify-center whitespace-nowrap rounded-lg px-3 text-center text-sm font-semibold",
             t.active ? "bg-surface text-ink shadow-sm" : "text-muted",
           )}
         >

@@ -15,7 +15,10 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
   `node_modules/next/dist/docs/` — check them before using an unfamiliar API.
 - Tailwind CSS v4 with design tokens in `src/app/globals.css` (`bg-surface`,
   `text-muted`, `border-line`, `bg-brand`, `text-brand-ink`, `bg-brand-soft`,
-  `text-accent`, `text-pos`, `text-neg`, `bg-warn-soft`…). Light + dark.
+  `text-accent`, `text-pos`, `text-neg`, `bg-warn-soft`…). Visual style is
+  "Game night": dark only, electric-lime brand color, Oswald condensed
+  headings/buttons/scores (`font-display`), Inter body text. Always use the
+  tokens, never raw colors, so the theme stays consistent.
 - Postgres on Neon via Drizzle ORM (`src/db/schema.ts`, `src/db/index.ts`),
   `@neondatabase/serverless` Pool (supports transactions and `FOR UPDATE`).
 - Vitest for pure logic (`tests/unit`), Playwright for e2e (`tests/e2e`).

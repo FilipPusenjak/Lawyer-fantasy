@@ -3,6 +3,7 @@
  * the field groups used by both the add and edit forms.
  */
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Field, Input, Select, Tabs } from "@/components/ui";
 import { CASE_TYPE_LABELS, CASE_TYPES, POSITION_LABELS, type CaseType } from "@/lib/settings";
 import { CAPTION_MAX, COURT_MAX, DOCKET_MAX, INDIVIDUAL_POSITIONS, NAME_MAX, ORG_MAX, URL_MAX } from "./pool-rules";
@@ -147,7 +148,7 @@ export function CaseFields({ d = {} }: { d?: CaseDefaults }) {
 }
 
 /** "<details>" disclosure styled as a card section header (used for "Add …" forms). */
-export function Disclosure({ summary, children, open }: { summary: string; children: React.ReactNode; open?: boolean }) {
+export function Disclosure({ summary, children, open }: { summary: string; children: ReactNode; open?: boolean }) {
   return (
     <details className="group rounded-2xl border border-line bg-surface" open={open}>
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 font-display text-sm font-semibold uppercase tracking-wide text-brand [&::-webkit-details-marker]:hidden">

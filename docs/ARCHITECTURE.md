@@ -63,9 +63,20 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
   `settings.trades.reviewHours`) → completed, or rejected/cancelled/vetoed/failed.
 - **Draft**: snake (`src/lib/draft.ts`), clients poll every ~2 s; the server
   auto-picks lazily when the deadline has passed.
-- **Results**: commissioners "finalize" weeks, which snapshots scores
-  (`snapshotWeek` in `src/server/services/scores.ts`). A matchup is final when
-  all its weeks are finalized. Playoffs are generated after the regular season.
+- **Results** (`src/server/services/results.ts`): commissioners "finalize"
+  weeks in order, which snapshots scores (`snapshotWeek`). A matchup is final
+  when all its weeks are finalized (median games use the median of all teams'
+  totals). Finalizing the last regular-season week seeds the playoffs
+  automatically (top `playoffTeams` from standings, byes for top seeds); each
+  settled round creates the next; one winner left → status `complete`. Only the
+  latest finalized week can be reopened; reopening deletes any playoff round
+  that finalizing it created (such a round has no finalized weeks yet), and it
+  is rebuilt with fresh seeding when re-finalized. `finalizeEndedWeeks`
+  finalizes every ended week in order (used by the seed).
+- **Cron**: `vercel.json` schedules `/api/cron/daily` once a day at 09:17 UTC
+  (Vercel Hobby limit). It needs `CRON_SECRET` set in Vercel (401 otherwise)
+  and returns 500 if any league's maintenance throws. League pages also run
+  maintenance lazily on every view.
 
 ## Code layout & conventions
 
@@ -121,5 +132,6 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
 | `/leagues/[id]/commish/members` | Members, co-commissioners, invite code |
 | `/leagues/[id]/commish/pool` | Manage lawyers, firms, cases, appearances (incl. CSV import) |
 | `/leagues/[id]/commish/events` | Review queue + add manual scoring events |
-| `/leagues/[id]/commish/weeks` | Finalize / reopen weeks, start playoffs |
+| `/leagues/[id]/commish/weeks` | Finalize / reopen weeks (playoffs start automatically) |
+| `/leagues/[id]/rankings` | Projected weekly points and rankings (scouting) |
 | `/api/cron/daily` | Vercel Cron: maintenance for all leagues |

@@ -262,10 +262,10 @@ describe("projectPool — firms", () => {
   it("counts each event once for a firm, times the firm multiplier", () => {
     const res = run({ lawyers, cases: [kase("c1")], appearances, events: weekly(-7, 0, { type: "motion_granted", customPoints: null }) });
     const f = res.projections.get("f")!;
-    expect(f.inputs.ownRate).toBe(1); // 2 × 0.5 once per event, not per lawyer
+    expect(f.inputs.ownRate).toBe(2); // 4 × 0.5 once per event, not per lawyer
     expect(f.inputs.eventsLookback).toBe(8);
     expect(f.inputs.activeCases).toBe(1);
-    expect(res.projections.get("a")!.inputs.ownRate).toBe(2);
+    expect(res.projections.get("a")!.inputs.ownRate).toBe(4);
   });
 
   it("tracks the firm's lawyers' cases and uses the multiplier in the prior", () => {

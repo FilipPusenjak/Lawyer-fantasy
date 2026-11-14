@@ -108,6 +108,24 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
 - **Neutral language**: show case facts neutrally (caption, court, docket
   number, event type, date, source link). No commentary about lawyers.
 
+## Projections and rankings
+
+- `src/lib/projections.ts` (`projectPool`) projects every lawyer and firm per
+  week: their own recent history blended with a prior. For cases with a
+  researched outlook (`cases.outlook`, `src/lib/outlook.ts`) the prior uses the
+  case's real docket activity, and scheduled/likely events (arguments, trials,
+  decisions, pleas…) are added in the weeks they could happen, conditioned on not
+  having happened yet; a terminal event stops the case's activity. Approved
+  events after the research date resolve milestones. Cases without an outlook
+  use typical rates per case type.
+- Season rank (`overallRank`) = projected points over the rest of the season;
+  draft ranks follow it ("Use projection ranks"). Week rank = this week's
+  projection. The Rankings page opens on season points before the season and on
+  the week afterwards; the rank shown always matches the sort.
+- Outlook data and research notes: `data/real-pool-2026-27/`, imported with
+  `scripts/import-outlooks.ts`. The UI shows only each case's factual status
+  line, never outcome probabilities.
+
 ## Court data and Claude suggestions
 
 - `src/server/services/court-sync.ts` runs the daily sync (cron) and the

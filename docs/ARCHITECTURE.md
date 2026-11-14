@@ -130,8 +130,8 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
 | `/leagues/[id]/commish` | Commissioner hub |
 | `/leagues/[id]/commish/settings` | League settings (roster, scoring presets/values, schedule, draft, waivers, trades) |
 | `/leagues/[id]/commish/members` | Members, co-commissioners, invite code |
-| `/leagues/[id]/commish/pool` | Manage lawyers, firms, cases, appearances (incl. CSV import) |
-| `/leagues/[id]/commish/events` | Review queue + add manual scoring events |
+| `/leagues/[id]/commish/pool` (+ `/firms`, `/cases`, `/cases/[caseId]`, `/lawyers/[lawyerId]`, `/import`) | Manage lawyers, firms, cases, appearances (incl. CSV import) |
+| `/leagues/[id]/commish/events` (+ `/new`, `/history`, `/[eventId]`) | Review queue, add manual scoring events, history, edit |
 | `/leagues/[id]/commish/weeks` | Finalize / reopen weeks (playoffs start automatically) |
 | `/leagues/[id]/rankings` | Projected weekly points and rankings (scouting) |
 | `/api/cron/daily` | Vercel Cron: maintenance for all leagues |

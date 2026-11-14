@@ -200,7 +200,8 @@ export function normalizeEventInput(input: EventInput, opts: { requireSource: bo
     customPoints = round2(p);
   }
 
-  let { caseId, side, lawyerId } = input;
+  const caseId = input.caseId;
+  let { side, lawyerId } = input;
   if (LAWYER_SPECIFIC_EVENTS.has(type) || (type === "custom" && lawyerId)) {
     if (!lawyerId) throw new UserError("Pick the lawyer this event is about.");
     side = null; // the case (if any) is just context

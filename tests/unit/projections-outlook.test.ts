@@ -423,6 +423,9 @@ describe("projectPool timing, own history and ranges", () => {
     // A conviction and an acquittal on the same day (co-defendants): the case goes on.
     const mixed = resolveMilestones(o, [e("a", "verdict_win", "2027-03-01", "defendant"), e("v", "verdict_win", "2027-03-01", "plaintiff")], SEASON);
     expect(mixed.ended).toBe(false);
+    // …or recorded a day apart, in either order.
+    expect(resolveMilestones(o, [e("a", "verdict_win", "2027-03-01", "defendant"), e("v", "verdict_win", "2027-03-02", "plaintiff")], SEASON).ended).toBe(false);
+    expect(resolveMilestones(o, [e("v", "verdict_win", "2027-03-01", "plaintiff"), e("a", "verdict_win", "2027-03-02", "defendant")], SEASON).ended).toBe(false);
   });
 
   it("endsCase outcomes lower survival like a terminal milestone, by their share", () => {
@@ -444,6 +447,22 @@ describe("projectPool timing, own history and ranges", () => {
     // Weeks 1–2 at 4 (the verdict is spread over them), then open 80% of the time; the verdict: 0.5 × 0.8 × 80 in each.
     expect(p.restOfSeason).toBeCloseTo(4 + 32 + (4 * 0.9 + 32) + 3.2 + 3.2, 1);
     expect(parseCaseOutlook(outlook({ milestones: [milestone({ terminal: true, outcomes: [{ probability: 1, label: "x", events: [], endsCase: true }] })] }))).toBeNull();
+    // An unobservable ending (no event) whose window has passed probably happened: it ends the case in its share.
+    const unseen = outlook({
+      activity: busy,
+      milestones: [
+        verdict({
+          windowEnd: "2026-12-13",
+          probability: 1,
+          outcomes: [
+            { probability: 0.5, label: "Denied", events: [{ type: "motion_denied", side: "defendant", lawyerId: null }] },
+            { probability: 0.5, label: "Case ends", events: [], endsCase: true },
+          ],
+        }),
+      ],
+    });
+    // After weeks 1–2 with no ruling recorded, the unseen ending is certain: nothing left.
+    expect(runAt(unseen, 2, 3, 2).get("p")!.projectedWeek).toBe(0);
   });
 
   it("own history follows the expected pace: a busy trial phase isn't carried past the verdict", () => {
@@ -456,6 +475,33 @@ describe("projectPool timing, own history and ranges", () => {
     const p = runAt(o, 3, 4, 10, [...history, verdictWin]).get("p")!;
     // Own rate 8/week at the trial pace (8): scaled to the post-verdict pace (2) → 2, blended with the prior 2.
     expect(p.projectedWeek).toBeCloseTo(2, 1);
+  });
+
+  it("paces that cancel out (denials vs filings) don't blow up the own-history scaling", () => {
+    // Case R: defense filings 0.3/wk (1.2) but rulings 0.25/wk at grant 0 (−3): net pace −1.8. Case U: filings 0.4/wk (1.6).
+    const r = outlook({ activity: { ...quiet, filingsPerWeek: { plaintiff: 0, defendant: 0.3 }, rulingsPerWeek: { plaintiff: 0, defendant: 0.25 }, grantRate: { plaintiff: 0.5, defendant: 0 } }, milestones: [milestone({})] });
+    const u = outlook({ activity: { ...quiet, filingsPerWeek: { plaintiff: 0, defendant: 0.4 } } });
+    const hist = ["2026-12-01", "2026-12-08", "2026-12-15"].map(
+      (d, i): ScoringEventInput => ({ id: `f${i}`, type: "filing", customPoints: null, occurredOn: d, caseId: "c2", side: "defendant", lawyerId: null }),
+    );
+    const decided: ScoringEventInput = { id: "w", type: "appeal_won", customPoints: null, occurredOn: "2026-12-16", caseId: "c1", side: "plaintiff", lawyerId: null };
+    const res = projectPool({
+      lawyers: [lawyer("x")],
+      cases: [
+        { id: "c1", caseType: "appeal", status: "active", filedOn: null, outlook: r },
+        { id: "c2", caseType: "civil", status: "active", filedOn: null, outlook: u },
+      ],
+      appearances: [app("x", "c1", "defendant"), app("x", "c2", "defendant")],
+      events: [...hist, decided],
+      scoring,
+      seasonStart: SEASON,
+      historyThroughWeek: 3,
+      remainingWeeks: 10,
+      targetWeek: 4,
+    }).projections.get("x")!;
+    // Own rate 4/wk; R ended, so the pace falls to U's share: (1.6) / (1.6 + 1.2 + 3) of it, never more than the own rate.
+    expect(res.projectedWeek).toBeLessThanOrEqual(4);
+    expect(res.projectedWeek).toBeGreaterThan(1);
   });
 
   it("a quiet case ending barely changes a busy lawyer's own-history term", () => {

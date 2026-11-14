@@ -294,7 +294,12 @@ export function resolveMilestones(
       continue; // absorbed by the milestone it resolved today
     }
     const open = all.filter((i) => !resolved.has(i));
-    if (open.length === 0) continue;
+    if (open.length === 0) {
+      // Nothing left to resolve, but a later event a non-ending outcome explains (a co-defendant's
+      // conviction after an acquittal) still shows the case goes on.
+      for (const j of all) if (endsAll.get(j) && !onlyEnding(j, e)) endsAll.set(j, false);
+      continue;
+    }
     const rank = (i: number) => [ms[i].terminal ? 1 : 0, inWindow(ms[i], e.occurredOn) ? 0 : 1, -density(ms[i]), i];
     open.sort((a, b) => {
       const ra = rank(a);

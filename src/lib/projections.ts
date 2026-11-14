@@ -628,7 +628,19 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
     // count, so an ending during the in-progress week lowers it.
     const survival = new Map<number, number>();
     const enders = live.map((x) => ({ x, share: endShare(x.m) })).filter((e) => e.share > 0);
-    const done = enders.map((e) => (e.x.m.terminal ? e.x.happenedUnseen : 0));
+    // Mass that may have happened unseen ends the case too, in the share of unobservable outcomes that end it.
+    const unseenEnding = (m: Milestone): number => {
+      if (m.terminal) return 1;
+      let unobs = 0;
+      let ending = 0;
+      for (const o of m.outcomes) {
+        if (o.events.some((e) => e.type !== "verdict_loss")) continue;
+        unobs += o.probability;
+        if (o.endsCase) ending += o.probability;
+      }
+      return unobs > 0 ? ending / unobs : 0;
+    };
+    const done = enders.map((e) => e.x.happenedUnseen * unseenEnding(e.x.m));
     for (let w = from; w <= lastWeek; w++) {
       let s = ended ? 0 : 1;
       enders.forEach((e, i) => (s *= 1 - Math.min(1, done[i])));
@@ -776,6 +788,24 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
       return { start: u.start, at: (): CaseRates => r, hist: (): CaseRates => r, survival: null as Map<number, number> | null };
     });
     const filingCap = scoring.filingWeeklyCap * k;
+    type UnitRate = (typeof unitRates)[number];
+    /**
+     * How busy their cases are expected to be in week w, never negative (|motion points| + capped filing
+     * points, each case weighted by `weight`), so paces that cancel out (denials vs filings) can't blow up
+     * the ratio below. `rates` picks the projected or the history pace.
+     */
+    function paceAt(w: number, weight: (u: UnitRate) => number, rates: (u: UnitRate) => CaseRates = (u) => u.at(w)): number {
+      let other = 0;
+      let filing = 0;
+      for (const u of unitRates) {
+        const s = weight(u);
+        if (s === 0) continue;
+        const r = rates(u);
+        other += Math.abs(r.other) * s;
+        filing += r.filing * s;
+      }
+      return other + clamp(filing, 0, filingCap);
+    }
     const priorAt = (w: number) => {
       let other = 0;
       let filing = 0;
@@ -796,7 +826,7 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
       }
       // Share of their expected docket pace still open (a quiet case ending barely matters).
       const openShare = pace > 0 ? paceOpen / pace : unitRates.length ? open / unitRates.length : 1;
-      return { rate: other + clamp(filing, 0, filingCap), events: evs, open: openShare };
+      return { rate: other + clamp(filing, 0, filingCap), events: evs, open: openShare, pace: paceAt(w, (u) => (u.survival ? (u.survival.get(w) ?? 0) : 1)) };
     };
     const priorTarget = priorAt(target);
     const priorRate = priorTarget.rate;
@@ -824,23 +854,16 @@ export function projectPool(input: ProjectionInput): ProjectionResult {
 
     // The pace their cases were expected to have over the history weeks (recency-weighted, all open): own
     // history is scaled by how the expected pace changes from then to each projected week, so a busy trial
-    // phase isn't carried past the verdict and a case ending scales history by its share of the pace.
+    // phase isn't carried past the verdict and a case ending scales history by its share of the pace. A case
+    // that started during the history window counts from its start, so a new case raises the pace too.
     let histSum = 0;
     let histW = 0;
     for (let w = lo; w <= H; w++) {
-      let other = 0;
-      let filing = 0;
-      for (const u of unitRates) {
-        if (w < u.start) continue;
-        const r = u.hist(w);
-        other += r.other;
-        filing += r.filing;
-      }
-      histSum += decay(w) * (other + clamp(filing, 0, filingCap));
+      histSum += decay(w) * paceAt(w, (u) => (w < u.start ? 0 : 1), (u) => u.hist(w));
       histW += decay(w);
     }
-    const priorHist = histW > 0 ? histSum / histW : 0;
-    const ownScale = (p: { rate: number; open: number }) => (priorHist > PACE_EPS ? clamp(p.rate / priorHist, 0, MAX_PACE_RATIO) : p.open);
+    const paceHist = histW > 0 ? histSum / histW : 0;
+    const ownScale = (p: { pace: number; open: number }) => (paceHist > PACE_EPS ? clamp(p.pace / paceHist, 0, MAX_PACE_RATIO) : p.open);
 
     // Weekly expectation: blended base (own history scaled by the expected pace) + scheduled events.
     const scheduled = activeCases > 0 || lawyerSpecific.has(l.id) ? milestonesFor(l) : [];

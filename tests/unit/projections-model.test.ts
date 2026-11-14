@@ -97,10 +97,10 @@ describe("projectPool — no history", () => {
   });
 
   it("new lawyers in a pool with history get the pool's base rate for their case type", () => {
-    // Five lawyers, each on an active civil case scoring 2 points every week.
+    // Five lawyers, each on an active civil case scoring 40 points every week.
     const vets = ["v1", "v2", "v3", "v4", "v5"];
     const cases = [...vets.map((v) => kase(`case-${v}`)), kase("fresh", { filedOn: inWeek(1) })];
-    const events = vets.flatMap((v) => weekly(-7, 0, { caseId: `case-${v}`, customPoints: 2 }));
+    const events = vets.flatMap((v) => weekly(-7, 0, { caseId: `case-${v}`, customPoints: 40 }));
     const input = {
       lawyers: [...vets.map((v) => lawyer(v)), lawyer("rookie")],
       cases,
@@ -109,14 +109,14 @@ describe("projectPool — no history", () => {
     };
     const exact = run({ ...input, options: { priorShrinkageWeeks: 0 } }).projections.get("rookie")!;
     expect(exact.inputs.observedWeeks).toBe(0); // case filed after the history window
-    expect(exact.inputs.priorRate).toBe(2);
-    expect(exact.projectedWeek).toBe(2);
+    expect(exact.inputs.priorRate).toBe(40);
+    expect(exact.projectedWeek).toBe(40);
 
     const shrunk = run(input).projections.get("rookie")!;
     const d = defaultCaseRates(halfPpf).civil;
     // Pulled a little toward the default, but mostly the pool's rate.
-    expect(shrunk.projectedWeek).toBeGreaterThan(1.5);
-    expect(shrunk.projectedWeek).toBeLessThan(2);
+    expect(shrunk.projectedWeek).toBeGreaterThan(30);
+    expect(shrunk.projectedWeek).toBeLessThan(40);
     expect(shrunk.projectedWeek).toBeGreaterThan(d.other + d.filing);
   });
 
@@ -262,10 +262,10 @@ describe("projectPool — firms", () => {
   it("counts each event once for a firm, times the firm multiplier", () => {
     const res = run({ lawyers, cases: [kase("c1")], appearances, events: weekly(-7, 0, { type: "motion_granted", customPoints: null }) });
     const f = res.projections.get("f")!;
-    expect(f.inputs.ownRate).toBe(2); // 4 × 0.5 once per event, not per lawyer
+    expect(f.inputs.ownRate).toBe(8); // 16 × 0.5 once per event, not per lawyer
     expect(f.inputs.eventsLookback).toBe(8);
     expect(f.inputs.activeCases).toBe(1);
-    expect(res.projections.get("a")!.inputs.ownRate).toBe(4);
+    expect(res.projections.get("a")!.inputs.ownRate).toBe(16);
   });
 
   it("tracks the firm's lawyers' cases and uses the multiplier in the prior", () => {

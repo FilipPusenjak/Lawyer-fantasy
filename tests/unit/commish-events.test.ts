@@ -53,16 +53,16 @@ describe("event credit targeting", () => {
   it("returns points under the league's scoring", () => {
     const credits = eventCredits(ev({}), index, scoring);
     expect(credits).toEqual([
-      { lawyerId: "A", name: "Lawyer A", kind: "lawyer", points: 20, viaFirm: false },
-      { lawyerId: "B", name: "Lawyer B", kind: "lawyer", points: 20, viaFirm: false },
-      { lawyerId: "F", name: "Firm F", kind: "firm", points: 10, viaFirm: true },
+      { lawyerId: "A", name: "Lawyer A", kind: "lawyer", points: 80, viaFirm: false },
+      { lawyerId: "B", name: "Lawyer B", kind: "lawyer", points: 80, viaFirm: false },
+      { lawyerId: "F", name: "Firm F", kind: "firm", points: 40, viaFirm: true },
     ]);
     expect(eventCredits(ev({ type: "custom", customPoints: -3, side: "defendant" }), index, scoring).map((c) => c.points)).toEqual([-3, -1.5]);
   });
 
   it("caps a filing at the weekly cap and lists 0-point credits", () => {
-    const big = { ...scoring, values: { ...scoring.values, filing: 10 } };
-    expect(eventCredits(ev({ type: "filing" }), index, big).map((c) => c.points)).toEqual([6, 6, 3]);
+    const big = { ...scoring, values: { ...scoring.values, filing: 40 } };
+    expect(eventCredits(ev({ type: "filing" }), index, big).map((c) => c.points)).toEqual([24, 24, 12]);
     const outcomes = presetScoring("outcomes"); // filing = 0
     expect(eventCredits(ev({ type: "filing" }), index, outcomes).map((c) => c.points)).toEqual([0, 0, 0]);
   });

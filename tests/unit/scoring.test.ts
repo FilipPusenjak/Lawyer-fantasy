@@ -37,9 +37,9 @@ describe("computeLawyerPoints", () => {
       weekOf,
       totalWeeks: 30,
     });
-    expect(pts.get("a")!.total).toBe(20);
-    expect(pts.get("b")!.total).toBe(20);
-    expect(pts.get("firm1")!.total).toBe(10); // 20 × 0.5 once, not twice
+    expect(pts.get("a")!.total).toBe(80);
+    expect(pts.get("b")!.total).toBe(80);
+    expect(pts.get("firm1")!.total).toBe(40); // 80 × 0.5 once, not twice
     expect(pts.get("c")).toBeUndefined();
   });
 
@@ -52,15 +52,15 @@ describe("computeLawyerPoints", () => {
       weekOf,
       totalWeeks: 30,
     });
-    expect(pts.get("a")!.total).toBe(-15);
+    expect(pts.get("a")!.total).toBe(-60);
     expect(pts.get("b")).toBeUndefined();
-    expect(pts.get("firm1")!.total).toBe(-7.5);
+    expect(pts.get("firm1")!.total).toBe(-30);
   });
 
   it("caps filing points per lawyer per week", () => {
     const events = Array.from({ length: 10 }, (_, i) => ev({ id: `f${i}`, type: "filing", side: "defendant" }));
     const pts = computeLawyerPoints({ events, appearances, lawyers, scoring, weekOf, totalWeeks: 30 });
-    expect(pts.get("c")!.total).toBe(6); // 10 × 1 capped at 6
+    expect(pts.get("c")!.total).toBe(24); // 10 × 4 capped at 24
     // next week resets
     const pts2 = computeLawyerPoints({
       events: [...events, ev({ id: "g1", type: "filing", side: "defendant", occurredOn: "2026-11-10" })],
@@ -70,7 +70,7 @@ describe("computeLawyerPoints", () => {
       weekOf,
       totalWeeks: 30,
     });
-    expect(pts2.get("c")!.byWeek.get(2)).toBe(1);
+    expect(pts2.get("c")!.byWeek.get(2)).toBe(4);
   });
 
   it("ignores events outside the season and handles custom points", () => {

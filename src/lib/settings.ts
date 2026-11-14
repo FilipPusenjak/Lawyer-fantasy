@@ -87,22 +87,22 @@ export const PRESET_LABELS: Record<ScoringPreset, string> = {
   custom: "Custom",
 };
 
-// Wins roughly doubled and penalties ~1.5x from the original spec, so weekly
-// scores feel more like fantasy football (commissioners can edit any value).
+// Sized so a typical team scores ~50 points a week (about 8x the original
+// spec for wins, 6x for penalties). Commissioners can edit any value.
 const BASE_VALUES: Omit<ScoringValues, "filing"> = {
-  motion_granted: 4,
-  motion_denied: -3,
-  dismissed_favorable: 10,
-  summary_judgment_won: 12,
-  verdict_win: 20,
-  verdict_loss: -12,
-  settlement_favorable: 12,
-  appeal_won: 16,
-  win_reversed: -8,
-  sanctioned: -15,
-  scotus_argument: 10,
-  guilty_plea: 8,
-  plea_reduced: 6,
+  motion_granted: 16,
+  motion_denied: -12,
+  dismissed_favorable: 40,
+  summary_judgment_won: 48,
+  verdict_win: 80,
+  verdict_loss: -48,
+  settlement_favorable: 48,
+  appeal_won: 64,
+  win_reversed: -32,
+  sanctioned: -60,
+  scotus_argument: 40,
+  guilty_plea: 32,
+  plea_reduced: 24,
 };
 
 export function presetScoring(preset: Exclude<ScoringPreset, "custom">): ScoringSettings {
@@ -110,9 +110,9 @@ export function presetScoring(preset: Exclude<ScoringPreset, "custom">): Scoring
     case "outcomes":
       return { preset, values: { ...BASE_VALUES, filing: 0 }, filingWeeklyCap: 0, firmMultiplier: 0.5 };
     case "half_ppf":
-      return { preset, values: { ...BASE_VALUES, filing: 1 }, filingWeeklyCap: 6, firmMultiplier: 0.5 };
+      return { preset, values: { ...BASE_VALUES, filing: 4 }, filingWeeklyCap: 24, firmMultiplier: 0.5 };
     case "full_ppf":
-      return { preset, values: { ...BASE_VALUES, filing: 2 }, filingWeeklyCap: 10, firmMultiplier: 0.5 };
+      return { preset, values: { ...BASE_VALUES, filing: 8 }, filingWeeklyCap: 40, firmMultiplier: 0.5 };
   }
 }
 

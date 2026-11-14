@@ -14,7 +14,8 @@ Totals: 156 lawyers (49 trial, 51 appellate, 33 prosecutors, 23 defense),
 lawyer–case links. The starter research excluded cases involving violence,
 sexual offenses, minors or family matters; United States v. Durk Banks was added
 afterwards at the commissioner's request (Brian Steel's case). The CSVs mirror
-the live pool as of Nov 14, 2026, and the `rank` column is the draft rank.
+the live pool as of Nov 14, 2026, and the `rank` column is the draft rank
+(season projection order under the league's Steady scoring).
 
 Notes: some Solicitor General lawyers argue as amicus supporting a side; the
 `side` column records the side they support. Case status changes quickly —

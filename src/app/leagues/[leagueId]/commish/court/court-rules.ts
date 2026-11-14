@@ -288,7 +288,10 @@ export function parseCourtInput(raw: string): { ok: true; courtId: string | unde
 /** Docket type code, e.g. "cv" from "1:24-cv-03973", "cr" from "26 Cr. 29 (AT)", or null. */
 export function docketTypeCode(docketNumber: string | null | undefined): string | null {
   if (!docketNumber) return null;
-  const m = /(?:^|[^0-9])(?:\d{1,2}:)?\d{2}[\s-]*([a-z]{1,4})\.?[\s-]*\d/i.exec(docketNumber);
+  const m =
+    /(?:^|[^0-9])(?:\d{1,2}:)?\d{2}[\s-]*([a-z]{1,4})\.?[\s-]*\d/i.exec(docketNumber) ??
+    // State-court style with the code first: "CR-26-004399"
+    /^\s*([a-z]{2})[\s-]+\d{2}[\s-]/i.exec(docketNumber);
   return m ? m[1].toLowerCase() : null;
 }
 
@@ -323,14 +326,17 @@ export function docketKey(docketNumber: string | null | undefined): string | nul
   return compact(s) || null;
 }
 
-/** Docket number with judge initials and parentheticals dropped, for prefilling a search ("5:24-cr-00314-J" → "5:24-cr-00314"). */
+/**
+ * Docket number for prefilling a CourtListener search: judge initials and
+ * parentheticals dropped, district dockets in CM/ECF form as CourtListener
+ * stores them ("5:24-cr-00314-J" → "5:24-cr-00314", "26 Cr. 29 (AT)" → "26-cr-00029").
+ */
 export function cleanDocketForSearch(docketNumber: string | null | undefined): string {
   if (!docketNumber) return "";
-  return docketNumber
-    .replace(/\([^)]*\)/g, " ")
-    .replace(/(\d)-[A-Za-z]{1,4}(?:-[A-Za-z]{1,4})*\s*$/, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
+  const s = docketNumber.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const m = /^(?:(\d{1,2}):)?(\d{2})[\s-]*([a-z]{1,4})\.?[\s-]*(\d{1,6})(?:-[a-z]{1,4})*$/i.exec(s);
+  if (m) return `${m[1] ? `${m[1]}:` : ""}${m[2]}-${m[3].toLowerCase()}-${m[4].padStart(5, "0")}`;
+  return s.replace(/(\d)-[A-Za-z]{1,4}(?:-[A-Za-z]{1,4})*$/, "$1");
 }
 
 type MatchableCase = {
@@ -403,6 +409,18 @@ export function previewNames<T>(names: T[], max = 3): { shown: T[]; more: number
 
 export function normName(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+const FIRM_SUFFIXES = new Set(["llp", "llc", "pllc", "lllp", "pc", "pa", "lp", "ltd", "inc", "plc", "l", "p", "c", "a"]);
+
+/**
+ * Comparable key for a firm name, ignoring punctuation, "and"/"&" and entity
+ * suffixes: "Cravath, Swaine & Moore LLP" and "Cravath, Swaine and Moore" → "cravath swaine moore".
+ */
+export function firmKey(name: string): string {
+  const t = tokens(name).filter((w) => w !== "and");
+  while (t.length > 1 && FIRM_SUFFIXES.has(t[t.length - 1])) t.pop();
+  return t.join(" ");
 }
 
 /** Default position for a new lawyer added to a case of this type ("" = make the commissioner pick). */

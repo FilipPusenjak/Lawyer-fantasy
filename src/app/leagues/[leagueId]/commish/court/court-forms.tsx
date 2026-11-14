@@ -9,6 +9,7 @@ import Link from "next/link";
 import { startTransition, useActionState, useState, type FormEvent } from "react";
 import { Badge, Button, buttonClass, Card, CardTitle, EmptyState, Field, Input, Notice, Select } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui-client";
+import { matchLawyerByName } from "@/lib/court/text";
 import { plural } from "@/lib/format";
 import { CASE_TYPE_LABELS, CASE_TYPES, POSITION_LABELS, POSITION_SHORT, sideLabel, SIDES, type CaseType, type Position } from "@/lib/settings";
 import { formatDate } from "@/lib/time";
@@ -17,6 +18,7 @@ import type { ClDocket } from "@/server/court/courtlistener";
 import { CAPTION_MAX, DOCKET_MAX, INDIVIDUAL_POSITIONS, NAME_MAX } from "../pool/pool-rules";
 import {
   courtLabel,
+  firmKey,
   guessCaseType,
   guessPosition,
   listWithMore,
@@ -291,7 +293,7 @@ export function CourtSearch({
   );
 }
 
-function DocketResultCard({
+export function DocketResultCard({
   d,
   initialPoolCase,
   mode,
@@ -314,6 +316,12 @@ function DocketResultCard({
   const [lawyerFormOpen, setLawyerFormOpen] = useState(false);
   const justAdded = add.state?.ok && add.state.data ? add.state.data : null;
   const poolCase = justAdded ?? initialPoolCase;
+  // Adding lawyers is the next step after adding a case: open that form once.
+  const [openedFor, setOpenedFor] = useState<string | null>(null);
+  if (justAdded && openedFor !== justAdded.id) {
+    setOpenedFor(justAdded.id);
+    setLawyerFormOpen(true);
+  }
   const isLinked = !!poolCase && (poolCase.linkedDocketId === d.docketId || !!link.state?.ok);
 
   const attorneys = matchNames(d.attorneys, mode === "attorney" ? query : "");
@@ -407,7 +415,17 @@ function DocketResultCard({
   );
 }
 
-function AddLawyerForm({
+function findExact<T extends { name: string }>(list: T[], name: string): T | undefined {
+  return list.find((l) => normName(l.name) === normName(name));
+}
+
+/** Firm names compared without punctuation, "&"/"and" or entity suffixes ("Cravath, Swaine & Moore LLP" ~ "Cravath, Swaine and Moore"). */
+function findFirm<T extends { name: string }>(firms: T[], name: string): T | undefined {
+  const key = firmKey(name);
+  return key ? firms.find((f) => firmKey(f.name) === key) : undefined;
+}
+
+export function AddLawyerForm({
   action,
   caseId,
   caseType,
@@ -428,8 +446,10 @@ function AddLawyerForm({
   const firms = lawyers.filter((l) => l.kind === "firm");
   const lawyerName = mode === "attorney" ? matchedName : "";
   const firmName = mode === "firm" ? matchedName : "";
-  const existing = (mode === "firm" ? firms : individuals).find((l) => normName(l.name) === normName(matchedName));
-  const existingFirm = firmName ? firms.find((f) => normName(f.name) === normName(firmName)) : undefined;
+  // Same name matching as the court sync uses for lawyers ("D. John Sauer" ~ "John Sauer").
+  const existing =
+    mode === "firm" ? findFirm(firms, matchedName) : (matchLawyerByName(matchedName, individuals) ?? findExact(individuals, matchedName));
+  const existingFirm = firmName ? findFirm(firms, firmName) : undefined;
   const [who, setWho] = useState<string>(existing?.id ?? (mode === "firm" ? "new-firm" : "new-lawyer"));
   const [firmChoice, setFirmChoice] = useState<string>(existingFirm?.id ?? (firmName ? "new" : ""));
   const isNew = who === "new-lawyer" || who === "new-firm";

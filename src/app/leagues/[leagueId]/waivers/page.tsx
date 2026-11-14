@@ -95,18 +95,18 @@ export default async function WaiversPage({ params }: PageProps<"/leagues/[leagu
               <p className="mb-2 text-sm text-muted">If you could win more than one, the top claim goes first.</p>
               <ol>
                 {pending.map((c, i) => (
-                  <li key={c.id} className="border-b border-line py-2.5 last:border-b-0">
+                  <li key={c.id} className="relative border-b border-line py-2.5 last:border-b-0">
                     <div className="flex items-center gap-3">
                       <span className="w-6 shrink-0 font-display text-lg font-bold text-brand">{i + 1}</span>
                       <div className="min-w-0 flex-1">
                         <p className="flex min-w-0 items-center gap-1.5">
                           <PositionBadge position={c.addPosition} />
-                          <LawyerLink leagueId={leagueId} id={c.addLawyerId} name={c.addName} className="truncate" />
+                          <LawyerLink leagueId={leagueId} id={c.addLawyerId} name={c.addName} className="truncate" stretch />
                         </p>
                         <p className="mt-0.5 truncate text-xs text-muted">{c.dropName ? `Drops ${c.dropName}` : "No drop"}</p>
                       </div>
                     </div>
-                    <ActionForm action={claimOpAction} className="mt-2 flex flex-wrap items-center gap-2 pl-9">
+                    <ActionForm action={claimOpAction} className="relative z-10 mt-2 flex flex-wrap items-center gap-2 pl-9">
                       <input type="hidden" name="leagueId" value={leagueId} />
                       <input type="hidden" name="claimId" value={c.id} />
                       <SubmitButton name="op" value="up" variant="secondary" className="px-3" pendingText="↑" disabled={i === 0}>
@@ -159,12 +159,12 @@ export default async function WaiversPage({ params }: PageProps<"/leagues/[leagu
           <CardTitle>Recent results</CardTitle>
           <div>
             {processed.map((c) => (
-              <ListRow key={c.id} className="items-start">
+              <ListRow key={c.id} className="relative items-start">
                 <Badge tone={c.status === "won" ? "pos" : "neg"} className="mt-0.5 w-12 shrink-0 justify-center">
                   {c.status === "won" ? "Won" : "Lost"}
                 </Badge>
                 <div className="min-w-0 flex-1">
-                  <LawyerLink leagueId={leagueId} id={c.addLawyerId} name={c.addName} className="block truncate" />
+                  <LawyerLink leagueId={leagueId} id={c.addLawyerId} name={c.addName} className="block truncate" stretch />
                   <p className="text-xs text-muted">
                     {c.processedAt ? formatDateTime(c.processedAt, tz) : ""}
                     {c.dropName ? ` · ${c.status === "won" ? "Dropped" : "Would have dropped"} ${c.dropName}` : ""}

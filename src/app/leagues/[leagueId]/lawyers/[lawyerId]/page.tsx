@@ -103,7 +103,7 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
           <PositionBadge position={lawyer.position} />
           <span className="min-w-0 truncate text-muted">
             {firm ? (
-              <Link href={`${base}/lawyers/${firm.id}`} className="font-semibold text-brand">
+              <Link href={`${base}/lawyers/${firm.id}`} className="inline-flex min-h-11 items-center font-semibold text-brand">
                 {firm.name}
               </Link>
             ) : (
@@ -195,9 +195,9 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
           ) : (
             <div>
               {members.map((m) => (
-                <ListRow key={m.id}>
+                <ListRow key={m.id} className="relative">
                   <PositionBadge position={m.position} />
-                  <LawyerLink leagueId={leagueId} id={m.id} name={m.name} className="min-w-0 flex-1 truncate" />
+                  <LawyerLink leagueId={leagueId} id={m.id} name={m.name} className="min-w-0 flex-1 truncate" stretch />
                   <Points value={sb.lawyerTotal(m.id)} className="font-semibold" />
                 </ListRow>
               ))}

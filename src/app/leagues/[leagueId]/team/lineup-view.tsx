@@ -27,11 +27,11 @@ export function LineupView({
   return (
     <div>
       {rows.map((r, i) => (
-        <ListRow key={i}>
+        <ListRow key={i} className="relative">
           <SlotChip slot={r.slot} />
           {r.lawyer ? (
             <div className="min-w-0 flex-1">
-              <LawyerLink leagueId={leagueId} id={r.lawyer.id} name={r.lawyer.name} className="block truncate" />
+              <LawyerLink leagueId={leagueId} id={r.lawyer.id} name={r.lawyer.name} className="block truncate" stretch />
               <p className="text-xs text-muted">{POSITION_SHORT[r.lawyer.position]}</p>
             </div>
           ) : (

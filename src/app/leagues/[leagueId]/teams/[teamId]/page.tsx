@@ -102,10 +102,10 @@ export default async function TeamPage({ params, searchParams }: PageProps<"/lea
         ) : (
           <div>
             {roster.map((r) => (
-              <ListRow key={r.id}>
+              <ListRow key={r.id} className="relative">
                 <PositionBadge position={r.position} />
                 <div className="min-w-0 flex-1">
-                  <LawyerLink leagueId={leagueId} id={r.id} name={r.name} className="block truncate" />
+                  <LawyerLink leagueId={leagueId} id={r.id} name={r.name} className="block truncate" stretch />
                   {r.organization ? <p className="truncate text-xs text-muted">{r.organization}</p> : null}
                 </div>
                 {starting.has(r.id) ? <Badge tone="brand">Starter</Badge> : <Badge>Bench</Badge>}

@@ -111,7 +111,7 @@ export function AddClaimButton({ lawyerId, lawyerName, mode }: { lawyerId: strin
       <Button
         type="button"
         variant={open ? "secondary" : "primary"}
-        className="shrink-0 px-3"
+        className="relative z-10 shrink-0 px-3"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label={open ? "Close" : `${mode === "add" ? "Add" : "Claim"} ${lawyerName}`}
@@ -119,7 +119,7 @@ export function AddClaimButton({ lawyerId, lawyerName, mode }: { lawyerId: strin
         {open ? "Close" : mode === "add" ? "Add" : "Claim"}
       </Button>
       {open ? (
-        <form onSubmit={onSubmit} className="basis-full space-y-2 rounded-xl border border-line bg-surface-2 p-3">
+        <form onSubmit={onSubmit} className="relative z-10 basis-full space-y-2 rounded-xl border border-line bg-surface-2 p-3">
           <HiddenFields leagueId={ctx.leagueId} op={mode} lawyerId={lawyerId} />
           <p className="text-sm">
             {mode === "add" ? (
@@ -182,7 +182,7 @@ export function DropButton({
   }
 
   return (
-    <form onSubmit={onSubmit} className={cx("shrink-0", className)}>
+    <form onSubmit={onSubmit} className={cx("relative z-10 shrink-0", className)}>
       <HiddenFields leagueId={ctx.leagueId} op="drop" lawyerId={lawyerId} />
       <Button type="submit" variant="secondary" className="px-3" disabled={ctx.pending} aria-label={`Drop ${lawyerName}`}>
         Drop

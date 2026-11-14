@@ -27,10 +27,26 @@ export function lawyerHref(leagueId: string, lawyerId: string): string {
   return `/leagues/${leagueId}/lawyers/${lawyerId}`;
 }
 
-/** Lawyer name linking to their page. */
-export function LawyerLink({ leagueId, id, name, className }: { leagueId: string; id: string; name: string; className?: string }) {
+/**
+ * Lawyer name linking to their page. With `stretch`, the link covers the
+ * nearest `relative` ancestor (the whole row becomes the tap target); give
+ * buttons in that row `relative z-10` so they stay clickable.
+ */
+export function LawyerLink({
+  leagueId,
+  id,
+  name,
+  className,
+  stretch,
+}: {
+  leagueId: string;
+  id: string;
+  name: string;
+  className?: string;
+  stretch?: boolean;
+}) {
   return (
-    <Link href={lawyerHref(leagueId, id)} className={cx("font-semibold hover:text-brand", className)}>
+    <Link href={lawyerHref(leagueId, id)} className={cx("font-semibold hover:text-brand", stretch && "after:absolute after:inset-0", className)}>
       {name}
     </Link>
   );

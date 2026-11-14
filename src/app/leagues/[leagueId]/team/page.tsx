@@ -159,10 +159,10 @@ export default async function MyTeamPage({ params, searchParams }: PageProps<"/l
           <MoveProvider leagueId={leagueId} dropOptions={[]} rosterFull={roster.length >= maxRoster}>
             <div>
               {roster.map((r) => (
-                <ListRow key={r.id}>
+                <ListRow key={r.id} className="relative">
                   <PositionBadge position={r.position} />
                   <div className="min-w-0 flex-1">
-                    <LawyerLink leagueId={leagueId} id={r.id} name={r.name} className="block truncate" />
+                    <LawyerLink leagueId={leagueId} id={r.id} name={r.name} className="block truncate" stretch />
                     {r.organization ? <p className="truncate text-xs text-muted">{r.organization}</p> : null}
                   </div>
                   <Points value={sb.lawyerTotal(r.id)} className="font-semibold" />

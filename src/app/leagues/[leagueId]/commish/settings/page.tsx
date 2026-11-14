@@ -133,16 +133,22 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
       {/* Schedule */}
       <Section id="schedule" title="Schedule">
         <ActionForm action={saveScheduleAction.bind(null, leagueId)}>
+          {locks.scheduleShape ? (
+            <Notice>
+              The season start, time zone and matchup lengths are locked once the draft starts, because the schedule is built from them.
+              {locks.playoffTeams ? " Playoff teams are locked too, since the playoffs are set." : null}
+            </Notice>
+          ) : null}
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Season starts" hint={locks.seasonStart ? "Locked after the draft starts" : "Must be a Monday"}>
+            <Field label="Season starts" hint={locks.seasonStart ? "Locked" : "Must be a Monday"}>
               <Input type="date" name="seasonStart" defaultValue={ctx.league.seasonStart} disabled={locks.seasonStart} required />
             </Field>
             <Field label="Lineups lock at" hint="Every Monday, league time">
               <Input type="time" name="lockTime" defaultValue={settings.schedule.lockTime} required />
             </Field>
           </div>
-          <Field label="Time zone" hint="Weeks, lineup locks and waivers use this time zone.">
-            <Select name="timezone" defaultValue={tz}>
+          <Field label="Time zone" hint={locks.scheduleShape ? "Locked" : "Weeks, lineup locks and waivers use this time zone."}>
+            <Select name="timezone" defaultValue={tz} disabled={locks.scheduleShape}>
               {timezoneOptions(tz).map((z) => (
                 <option key={z.id} value={z.id}>
                   {z.label}
@@ -151,7 +157,7 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Weeks per matchup" hint={locks.regularSeason ? "Locked after the draft starts" : "1 to 4"}>
+            <Field label="Weeks per matchup" hint={locks.scheduleShape ? "Locked" : "1 to 4"}>
               <Input
                 type="number"
                 name="matchupWeeks"
@@ -160,11 +166,11 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 step={1}
                 inputMode="numeric"
                 defaultValue={settings.schedule.matchupWeeks}
-                disabled={locks.regularSeason}
+                disabled={locks.scheduleShape}
                 required
               />
             </Field>
-            <Field label="Regular-season matchups" hint={locks.regularSeason ? "Locked after the draft starts" : "1 to 30"}>
+            <Field label="Regular-season matchups" hint={locks.scheduleShape ? "Locked" : "1 to 30"}>
               <Input
                 type="number"
                 name="regularSeasonMatchups"
@@ -173,11 +179,11 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 step={1}
                 inputMode="numeric"
                 defaultValue={settings.schedule.regularSeasonMatchups}
-                disabled={locks.regularSeason}
+                disabled={locks.scheduleShape}
                 required
               />
             </Field>
-            <Field label="Playoff teams" hint={locks.playoffs ? "Locked once playoffs start" : `0 = no playoffs, or 2 to ${playoffLimit}`}>
+            <Field label="Playoff teams" hint={locks.playoffTeams ? "Locked: playoffs are set" : `0 = no playoffs, or 2 to ${playoffLimit}`}>
               <Input
                 type="number"
                 name="playoffTeams"
@@ -186,11 +192,11 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 step={1}
                 inputMode="numeric"
                 defaultValue={settings.schedule.playoffTeams}
-                disabled={locks.playoffs}
+                disabled={locks.playoffTeams}
                 required
               />
             </Field>
-            <Field label="Weeks per playoff round" hint={locks.playoffs ? "Locked once playoffs start" : "1 to 4"}>
+            <Field label="Weeks per playoff round" hint={locks.scheduleShape ? "Locked" : "1 to 4"}>
               <Input
                 type="number"
                 name="playoffRoundWeeks"
@@ -199,7 +205,7 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
                 step={1}
                 inputMode="numeric"
                 defaultValue={settings.schedule.playoffRoundWeeks}
-                disabled={locks.playoffs}
+                disabled={locks.scheduleShape}
                 required
               />
             </Field>
@@ -216,7 +222,7 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
               {formatDate(ctx.league.seasonStart)} – {formatDate(summary.endDate)}
             </p>
           </div>
-          {!locks.playoffs && settings.schedule.playoffTeams > teamCount && teamCount > 0 && status !== "setup" ? (
+          {!locks.playoffTeams && settings.schedule.playoffTeams > teamCount && teamCount > 0 && status !== "setup" ? (
             <Notice tone="warn">There are more playoff spots than teams. Lower the number of playoff teams.</Notice>
           ) : null}
           <SubmitButton className="w-full">Save schedule</SubmitButton>

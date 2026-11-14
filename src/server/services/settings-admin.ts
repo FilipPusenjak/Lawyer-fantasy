@@ -8,7 +8,7 @@
  */
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { DbOrTx } from "@/db";
-import { drafts, leagueMembers, leagues, sessions, teams, users, type League } from "@/db/schema";
+import { drafts, leagueMembers, leagues, matchups, sessions, teams, users, type League } from "@/db/schema";
 import {
   leagueSettingsSchema,
   parseLeagueSettings,
@@ -45,23 +45,26 @@ export type SettingsLocks = {
   /** Seconds per pick + scheduled draft time. */
   draft: boolean;
   seasonStart: boolean;
-  /** Weeks per matchup + number of regular-season matchups. */
-  regularSeason: boolean;
-  /** Playoff teams + weeks per playoff round. */
-  playoffs: boolean;
+  /**
+   * Time zone, weeks per matchup, regular-season matchups and weeks per
+   * playoff round: the generated schedule, week→period mapping and playoff
+   * week ranges depend on them, so they're fixed once the league leaves setup.
+   */
+  scheduleShape: boolean;
+  /** Playoff team count: fixed once a playoff matchup exists or the playoffs have started. */
+  playoffTeams: boolean;
   /** Members (and their teams) can be removed. */
   removeMembers: boolean;
 };
 
-export function settingsLocks(status: LeagueStatus, draftStatus: DraftStatus | null): SettingsLocks {
+export function settingsLocks(status: LeagueStatus, draftStatus: DraftStatus | null, hasPlayoffMatchups = false): SettingsLocks {
   const preDraft = status === "setup" && (draftStatus ?? "not_started") === "not_started";
-  const beforePlayoffs = status === "setup" || status === "drafting" || status === "in_season";
   return {
     roster: !preDraft,
     draft: !preDraft,
     seasonStart: !preDraft,
-    regularSeason: !preDraft,
-    playoffs: !beforePlayoffs,
+    scheduleShape: !preDraft,
+    playoffTeams: hasPlayoffMatchups || status === "playoffs" || status === "complete",
     removeMembers: !preDraft,
   };
 }
@@ -80,15 +83,26 @@ export type AdminLeague = {
   settings: LeagueSettings;
   draftStatus: DraftStatus | null;
   teamCount: number;
+  hasPlayoffMatchups: boolean;
   locks: SettingsLocks;
 };
 
+async function hasPlayoffMatchups(db: DbOrTx, leagueId: string): Promise<boolean> {
+  const [m] = await db
+    .select({ id: matchups.id })
+    .from(matchups)
+    .where(and(eq(matchups.leagueId, leagueId), eq(matchups.isPlayoff, true)))
+    .limit(1);
+  return !!m;
+}
+
 /** Load what the settings page needs (no locks taken). */
 export async function loadAdminLeague(db: DbOrTx, leagueId: string): Promise<AdminLeague> {
-  const [[league], [d], teamRows] = await Promise.all([
+  const [[league], [d], teamRows, playoffs] = await Promise.all([
     db.select().from(leagues).where(eq(leagues.id, leagueId)),
     db.select({ status: drafts.status }).from(drafts).where(eq(drafts.leagueId, leagueId)),
     db.select({ id: teams.id }).from(teams).where(eq(teams.leagueId, leagueId)),
+    hasPlayoffMatchups(db, leagueId),
   ]);
   if (!league) throw new UserError("League not found.");
   const draftStatus = d?.status ?? null;
@@ -97,7 +111,8 @@ export async function loadAdminLeague(db: DbOrTx, leagueId: string): Promise<Adm
     settings: parseLeagueSettings(league.settings),
     draftStatus,
     teamCount: teamRows.length,
-    locks: settingsLocks(league.status, draftStatus),
+    hasPlayoffMatchups: playoffs,
+    locks: settingsLocks(league.status, draftStatus, playoffs),
   };
 }
 
@@ -108,13 +123,15 @@ async function withLockedLeague<T>(db: DbOrTx, leagueId: string, fn: (tx: DbOrTx
     const [league] = await tx.select().from(leagues).where(eq(leagues.id, leagueId)).for("update");
     if (!league) throw new UserError("League not found.");
     const teamRows = await tx.select({ id: teams.id }).from(teams).where(eq(teams.leagueId, leagueId));
+    const playoffs = await hasPlayoffMatchups(tx, leagueId);
     const draftStatus = d?.status ?? null;
     return fn(tx, {
       league,
       settings: parseLeagueSettings(league.settings),
       draftStatus,
       teamCount: teamRows.length,
-      locks: settingsLocks(league.status, draftStatus),
+      hasPlayoffMatchups: playoffs,
+      locks: settingsLocks(league.status, draftStatus, playoffs),
     });
   });
 }
@@ -157,34 +174,40 @@ export async function saveScoringSettings(db: DbOrTx, leagueId: string, scoring:
 }
 
 /**
- * Schedule. Season start and regular-season shape only before the draft;
- * playoff shape until the playoffs start; time zone and lock time any time.
+ * Schedule. Season start, time zone and the matchup/playoff-round shape only
+ * before the draft; playoff team count until a playoff round exists; lineup
+ * lock time any time.
  */
 export async function saveScheduleSettings(
   db: DbOrTx,
   leagueId: string,
   input: { seasonStart: string; schedule: ScheduleSettings },
-  now: Date = new Date(),
 ): Promise<LeagueSettings> {
   return withLockedLeague(db, leagueId, async (tx, l) => {
     const cur = l.settings.schedule;
     const s = input.schedule;
     if (l.locks.seasonStart && input.seasonStart !== l.league.seasonStart) throw new UserError("The season start is locked once the draft starts.");
-    if (l.locks.regularSeason && (s.matchupWeeks !== cur.matchupWeeks || s.regularSeasonMatchups !== cur.regularSeasonMatchups)) {
-      throw new UserError("The regular-season schedule is locked once the draft starts.");
+    if (
+      l.locks.scheduleShape &&
+      (s.timezone !== cur.timezone ||
+        s.matchupWeeks !== cur.matchupWeeks ||
+        s.regularSeasonMatchups !== cur.regularSeasonMatchups ||
+        s.playoffRoundWeeks !== cur.playoffRoundWeeks)
+    ) {
+      throw new UserError("The time zone and matchup lengths are locked once the draft starts.");
     }
-    if (l.locks.playoffs && (s.playoffTeams !== cur.playoffTeams || s.playoffRoundWeeks !== cur.playoffRoundWeeks)) {
-      throw new UserError("Playoff settings are locked once the playoffs start.");
+    if (l.locks.playoffTeams && s.playoffTeams !== cur.playoffTeams) {
+      throw new UserError("The number of playoff teams is locked once the playoffs are set.");
     }
     if (dayOfWeek(input.seasonStart) !== 1) throw new UserError("The season has to start on a Monday.");
-    const limit = playoffTeamLimit(l.locks, l.settings.maxTeams, l.teamCount);
-    if (s.playoffTeams === 1 || s.playoffTeams > limit) {
-      throw new UserError(`Playoff teams must be 0 (no playoffs) or between 2 and ${limit}.`);
+    if (!l.locks.playoffTeams) {
+      const limit = playoffTeamLimit(l.locks, l.settings.maxTeams, l.teamCount);
+      if (s.playoffTeams === 1 || s.playoffTeams > limit) {
+        throw new UserError(`Playoff teams must be 0 (no playoffs) or between 2 and ${limit}.`);
+      }
     }
     if (totalSeasonWeeks(s) > MAX_SEASON_WEEKS) throw new UserError(`The season can be at most ${MAX_SEASON_WEEKS} weeks long.`);
-    const next = await writeSettings(tx, leagueId, { ...l.settings, schedule: s }, { seasonStart: input.seasonStart });
-    if (inSeason(l.league.status) && s.timezone !== cur.timezone) await scheduleNextWaiverRun(tx, leagueId, next, now);
-    return next;
+    return writeSettings(tx, leagueId, { ...l.settings, schedule: s }, { seasonStart: input.seasonStart });
   });
 }
 

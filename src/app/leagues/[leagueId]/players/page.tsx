@@ -182,9 +182,9 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
                 const claimOrder = myClaims.get(p.id);
                 const spot = mySpots.get(p.id);
                 return (
-                  <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line py-2.5 last:border-b-0">
+                  <li key={p.id} className="relative flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line py-2.5 last:border-b-0">
                     <div className="min-w-0 flex-1">
-                      <LawyerLink leagueId={leagueId} id={p.id} name={p.name} className="block truncate leading-tight" />
+                      <LawyerLink leagueId={leagueId} id={p.id} name={p.name} className="block truncate leading-tight" stretch />
                       <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
                         <PositionBadge position={p.position} />
                         <span className="truncate">{p.organization ?? (p.kind === "firm" ? "Law firm" : "")}</span>

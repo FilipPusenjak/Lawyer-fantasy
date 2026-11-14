@@ -200,26 +200,31 @@ export function parseScheduleForm(
       if (!isIsoDate(seasonStart)) throw new FormProblem("Pick the season start date.");
       if (dayOfWeek(seasonStart) !== 1) throw new FormProblem("The season has to start on a Monday.");
     }
-    const timezone = text(form, "timezone");
-    if (!timezone || !isValidTimeZone(timezone)) throw new FormProblem("Pick a time zone.");
     const lockTime = timeOfDay(form, "lockTime", "Lineup lock time");
-    const regular = locks.regularSeason
-      ? { matchupWeeks: current.matchupWeeks, regularSeasonMatchups: current.regularSeasonMatchups }
-      : {
-          matchupWeeks: whole(form, "matchupWeeks", "Weeks per matchup", 1, 4),
-          regularSeasonMatchups: whole(form, "regularSeasonMatchups", "Regular-season matchups", 1, 30),
-        };
-    let playoffs = { playoffTeams: current.playoffTeams, playoffRoundWeeks: current.playoffRoundWeeks };
-    if (!locks.playoffs) {
-      playoffs = {
-        playoffTeams: whole(form, "playoffTeams", "Playoff teams", 0, 12),
+    let shape = {
+      timezone: current.timezone,
+      matchupWeeks: current.matchupWeeks,
+      regularSeasonMatchups: current.regularSeasonMatchups,
+      playoffRoundWeeks: current.playoffRoundWeeks,
+    };
+    if (!locks.scheduleShape) {
+      const timezone = text(form, "timezone");
+      if (!timezone || !isValidTimeZone(timezone)) throw new FormProblem("Pick a time zone.");
+      shape = {
+        timezone,
+        matchupWeeks: whole(form, "matchupWeeks", "Weeks per matchup", 1, 4),
+        regularSeasonMatchups: whole(form, "regularSeasonMatchups", "Regular-season matchups", 1, 30),
         playoffRoundWeeks: whole(form, "playoffRoundWeeks", "Weeks per playoff round", 1, 4),
       };
-      if (playoffs.playoffTeams === 1 || playoffs.playoffTeams > opts.playoffLimit) {
+    }
+    let playoffTeams = current.playoffTeams;
+    if (!locks.playoffTeams) {
+      playoffTeams = whole(form, "playoffTeams", "Playoff teams", 0, 12);
+      if (playoffTeams === 1 || playoffTeams > opts.playoffLimit) {
         throw new FormProblem(`Playoff teams must be 0 (no playoffs) or between 2 and ${opts.playoffLimit}.`);
       }
     }
-    const schedule = finalCheck(scheduleSchema, { timezone, lockTime, ...regular, ...playoffs });
+    const schedule = finalCheck(scheduleSchema, { ...shape, lockTime, playoffTeams });
     if (totalSeasonWeeks(schedule) > opts.maxSeasonWeeks) {
       throw new FormProblem(`That season would be ${totalSeasonWeeks(schedule)} weeks. Keep it to ${opts.maxSeasonWeeks} or fewer.`);
     }

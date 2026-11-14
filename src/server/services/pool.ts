@@ -20,6 +20,7 @@ import {
   type Case,
   type Lawyer,
 } from "@/db/schema";
+import { firmKey, planFirmImport } from "@/lib/firms";
 import type { CaseType, Position, Side } from "@/lib/settings";
 import { UserError } from "@/server/action-result";
 
@@ -596,27 +597,27 @@ export async function importLawyers(
     const problems: ImportProblem[] = [];
     const skipped: string[] = [];
 
-    // 1. Firms: explicit firm rows plus firms referenced by lawyers.
-    const firmNames = new Map<string, { name: string; organization: string | null; rank: number | null }>();
+    // 1. Firms: explicit firm rows plus firms referenced by lawyers, matched by firmKey so two spellings
+    // of one firm ("Susman Godfrey LLP" / "Susman Godfrey L.L.P.") never become two firms.
     for (const r of rows) {
-      if (r.position === "firm") {
-        const k = norm(r.name);
-        if (!byName.has(k)) firmNames.set(k, { name: r.name, organization: r.organization, rank: r.rank });
-      } else if (r.firm) {
-        const k = norm(r.firm);
-        const hit = byName.get(k);
-        if (hit && hit.kind !== "firm") problems.push({ line: r.line, message: `“${r.firm}” is a lawyer in the pool, not a firm.` });
-        else if (!hit && !firmNames.has(k)) firmNames.set(k, { name: r.firm, organization: null, rank: null });
-      }
+      if (r.position === "firm" || !r.firm) continue;
+      const hit = byName.get(norm(r.firm));
+      if (hit && hit.kind !== "firm") problems.push({ line: r.line, message: `“${r.firm}” is a lawyer in the pool, not a firm.` });
     }
     if (problems.length > 0) return { created: 0, firmsCreated: 0, skipped, problems };
 
-    let firmsCreated = 0;
-    if (firmNames.size > 0) {
+    const firmByKey = new Map(existing.filter((l) => l.kind === "firm").map((f) => [firmKey(f.name), f]));
+    // A firm row whose exact name is already a pool lawyer is left alone (reported as skipped below).
+    const planned = planFirmImport(
+      existing.filter((l) => l.kind === "firm").map((f) => f.name),
+      rows.filter((r) => !(r.position === "firm" && byName.has(norm(r.name)))),
+    );
+    const createdNames = new Set<string>();
+    if (planned.length > 0) {
       const inserted = await tx
         .insert(lawyers)
         .values(
-          [...firmNames.values()].map((f) => ({
+          planned.map((f) => ({
             poolId,
             name: f.name,
             kind: "firm" as const,
@@ -626,9 +627,13 @@ export async function importLawyers(
           })),
         )
         .returning({ id: lawyers.id, name: lawyers.name, kind: lawyers.kind });
-      firmsCreated = inserted.length;
-      for (const f of inserted) byName.set(norm(f.name), f);
+      for (const f of inserted) {
+        byName.set(norm(f.name), f);
+        firmByKey.set(firmKey(f.name), f);
+        createdNames.add(norm(f.name));
+      }
     }
+    const firmsCreated = createdNames.size;
 
     // 2. Individual lawyers.
     const values: (typeof lawyers.$inferInsert)[] = [];
@@ -638,7 +643,7 @@ export async function importLawyers(
         skipped.push(r.name);
         continue;
       }
-      const firmId = r.firm ? (byName.get(norm(r.firm))?.id ?? null) : null;
+      const firmId = r.firm ? (firmByKey.get(firmKey(r.firm))?.id ?? null) : null;
       values.push({
         poolId,
         name: r.name,
@@ -649,9 +654,9 @@ export async function importLawyers(
         preseasonRank: r.rank,
       });
     }
-    // Firm rows that already existed count as skipped.
+    // Firm rows that weren't created (already in the pool, or another spelling of a firm in this file) count as skipped.
     for (const r of rows) {
-      if (r.position === "firm" && !firmNames.has(norm(r.name))) skipped.push(r.name);
+      if (r.position === "firm" && !createdNames.has(norm(r.name))) skipped.push(r.name);
     }
     if (values.length > 0) await tx.insert(lawyers).values(values);
     return { created: values.length, firmsCreated, skipped, problems };

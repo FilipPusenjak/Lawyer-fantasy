@@ -45,6 +45,17 @@ export const milestoneEventSchema = z
   .refine((e) => (e.side === null) !== (e.lawyerId === null), "An event credits either a side or one lawyer.");
 export type MilestoneEvent = z.infer<typeof milestoneEventSchema>;
 
+/** Docket pace: substantive filings and motion rulings per side per week, and the share of rulings granted. */
+const activityRatesSchema = z.object({
+  /** Substantive filings per week by each side while the case is open. */
+  filingsPerWeek: perSide(20),
+  /** Rulings per week on each side's motions. */
+  rulingsPerWeek: perSide(5),
+  /** Share of those rulings that are granted. */
+  grantRate: perSide(1),
+});
+export type ActivityRates = z.infer<typeof activityRatesSchema>;
+
 export const milestoneSchema = z.object({
   /** Neutral fact, e.g. "Oral argument scheduled for Jan 13, 2027". */
   label: z.string().min(1).max(200),
@@ -61,6 +72,12 @@ export const milestoneSchema = z.object({
     .min(1)
     .max(6),
   sourceUrl: z.string().url().nullable(),
+  /**
+   * Docket pace once this milestone has happened, replacing the case's activity
+   * (e.g. post-verdict motions and sentencing papers after a trial). Only on a
+   * non-terminal milestone, and at most one per outlook.
+   */
+  activityAfter: activityRatesSchema.optional(),
 });
 export type Milestone = z.infer<typeof milestoneSchema>;
 
@@ -69,13 +86,7 @@ export const caseOutlookSchema = z.object({
   asOf: isoDate,
   /** One neutral sentence: where the case stands. */
   stage: z.string().max(400),
-  activity: z.object({
-    /** Substantive filings per week by each side while the case is open. */
-    filingsPerWeek: perSide(20),
-    /** Rulings per week on each side's motions. */
-    rulingsPerWeek: perSide(5),
-    /** Share of those rulings that are granted. */
-    grantRate: perSide(1),
+  activity: activityRatesSchema.extend({
     /** How the rates were estimated (neutral, factual). */
     basis: z.string().max(600),
   }),
@@ -89,7 +100,11 @@ export function parseCaseOutlook(raw: unknown): CaseOutlook | null {
   if (raw === null || raw === undefined) return null;
   const r = caseOutlookSchema.safeParse(raw);
   if (!r.success) return null;
-  return r.data.milestones.every((m) => m.windowEnd >= m.windowStart && outcomesSumToOne(m)) ? r.data : null;
+  const ms = r.data.milestones;
+  const valid =
+    ms.every((m) => m.windowEnd >= m.windowStart && outcomesSumToOne(m) && !(m.terminal && m.activityAfter)) &&
+    ms.filter((m) => m.activityAfter).length <= 1;
+  return valid ? r.data : null;
 }
 
 function outcomesSumToOne(m: Milestone): boolean {
@@ -101,13 +116,13 @@ function outcomesSumToOne(m: Milestone): boolean {
 // Rates
 // ---------------------------------------------------------------------------
 
-/** Expected points per week for one side from activity: raw filing points (capped later) and the rest. */
+/** Expected points per week for one side from activity (an outlook's, or a milestone's activityAfter): raw filing points (capped later) and the rest. */
 export function activityRates(
-  outlook: CaseOutlook,
+  source: CaseOutlook | ActivityRates,
   side: Side,
   scoring: ScoringSettings,
 ): { filing: number; other: number; events: number } {
-  const a = outlook.activity;
+  const a = "activity" in source ? source.activity : source;
   const perFiling = Math.max(0, Math.min(scoring.values.filing, scoring.filingWeeklyCap));
   const filings = a.filingsPerWeek[side];
   const rulings = a.rulingsPerWeek[side];
@@ -125,16 +140,37 @@ export function activityRates(
 // ---------------------------------------------------------------------------
 
 /**
- * Probability that a milestone happens in each season week, from `firstWeek`
- * on, given it hasn't happened before `firstWeek` (the mass before is
- * removed and the rest renormalized). Returns week → probability.
+ * Share of a milestone's outcomes that would leave an approved event behind
+ * (any event other than the automatic verdict_loss). A sentencing, or a
+ * Supreme Court argument by someone outside the pool, leaves none, so the app
+ * can't see whether it has happened.
  */
-export function milestoneWeekProbabilities(m: Milestone, seasonStart: string, firstWeek: number, lastWeek: number): Map<number, number> {
+export function observableShare(m: Milestone): number {
+  let q = 0;
+  for (const o of m.outcomes) if (o.events.some((e) => e.type !== "verdict_loss")) q += o.probability;
+  return Math.min(1, q);
+}
+
+/**
+ * When a milestone happens, given that no approved event has resolved it.
+ * Probability is spread evenly over the window's days. Mass in weeks before
+ * `firstWeek` (the first week not known to be over) has either happened
+ * unseen (the unobservable share) or not happened, so the rest is
+ * renormalized only by what an approved event would have shown:
+ * P(week w) = p_w / (1 − q·before) and happenedUnseen = (1 − q)·before / (1 − q·before),
+ * where q = observableShare(m).
+ */
+export function milestoneTiming(
+  m: Milestone,
+  seasonStart: string,
+  firstWeek: number,
+  lastWeek: number,
+): { probs: Map<number, number>; happenedUnseen: number } {
   const out = new Map<number, number>();
   const start = dateToDayNumber(m.windowStart);
   const end = dateToDayNumber(m.windowEnd);
   const days = end - start + 1;
-  if (days <= 0 || m.probability <= 0) return out;
+  if (days <= 0 || m.probability <= 0) return { probs: out, happenedUnseen: 0 };
   const perDay = m.probability / days;
   let before = 0;
   for (let d = start; d <= end; d++) {
@@ -142,26 +178,89 @@ export function milestoneWeekProbabilities(m: Milestone, seasonStart: string, fi
     if (w < firstWeek) before += perDay;
     else if (w <= lastWeek) out.set(w, (out.get(w) ?? 0) + perDay);
   }
-  const remaining = 1 - before;
-  if (remaining <= 1e-9) return new Map();
+  const q = observableShare(m);
+  const remaining = 1 - q * before;
+  if (remaining <= 1e-9) return { probs: new Map(), happenedUnseen: 0 };
   if (before > 0) for (const [w, p] of out) out.set(w, p / remaining);
-  return out;
+  return { probs: out, happenedUnseen: ((1 - q) * before) / remaining };
+}
+
+/** Week → probability that the milestone happens that week (see milestoneTiming). */
+export function milestoneWeekProbabilities(m: Milestone, seasonStart: string, firstWeek: number, lastWeek: number): Map<number, number> {
+  return milestoneTiming(m, seasonStart, firstWeek, lastWeek).probs;
+}
+
+/** An approved event on the case, as milestone resolution needs it. */
+export type ResolvingEvent = { type: string; occurredOn: string; side: Side | null; lawyerId: string | null };
+
+/** Rulings that docket activity also produces: they only resolve a milestone inside its window. */
+const ROUTINE_RULINGS: ReadonlySet<string> = new Set(["motion_granted", "motion_denied"]);
+
+/** Could this milestone have produced the approved event? Same type; a lawyer event for the same lawyer, a side event for the same side. */
+function couldProduce(m: Milestone, e: ResolvingEvent): boolean {
+  return m.outcomes.some((o) =>
+    o.events.some((x) => {
+      if (x.type === "verdict_loss" || x.type !== e.type) return false;
+      if (x.lawyerId) return e.lawyerId === x.lawyerId;
+      return e.lawyerId === null && (e.side === null || e.side === x.side);
+    }),
+  );
 }
 
 /**
- * Has an approved event already resolved this milestone? True when the case
- * has an approved event of one of the milestone's types (other than the
- * automatic verdict_loss) dated on/after the outlook's research date.
+ * Which milestones approved events have already resolved, and whether (and
+ * when) the case has ended. Only events dated on/after the research date count,
+ * in date order. An event can resolve a milestone that could have produced it
+ * (couldProduce); a routine ruling (motion_granted/denied) only inside the
+ * milestone's window, where a window starting on or before the season start
+ * counts from the research date. Each event resolves at most one milestone:
+ * one whose window contains its date, then a non-terminal one, then the
+ * likeliest (probability per window day), then list order. Events on the same
+ * day that a milestone resolved that day could have produced are absorbed by it
+ * (one order denying two motions). A resolved terminal milestone ends the case
+ * only when no other milestone could have produced the event, so an ambiguous
+ * match (e.g. a co-defendant's plea) never zeroes a case.
  */
-export function milestoneResolved(
-  m: Milestone,
-  asOf: string,
-  caseEvents: readonly { type: string; occurredOn: string }[],
-): boolean {
-  const types = new Set<string>();
-  for (const o of m.outcomes) for (const e of o.events) if (e.type !== "verdict_loss") types.add(e.type);
-  if (types.size === 0) return false;
-  return caseEvents.some((e) => types.has(e.type) && e.occurredOn >= asOf);
+export function resolveMilestones(
+  outlook: CaseOutlook,
+  caseEvents: readonly ResolvingEvent[],
+  seasonStart: string,
+): { resolved: Set<number>; ended: boolean; endedOn: string | null } {
+  const ms = outlook.milestones;
+  const from = (m: Milestone) => (m.windowStart <= seasonStart ? outlook.asOf : m.windowStart);
+  const inWindow = (m: Milestone, d: string) => d >= from(m) && d <= m.windowEnd;
+  const density = (m: Milestone) => m.probability / (dateToDayNumber(m.windowEnd) - dateToDayNumber(m.windowStart) + 1);
+  const resolved = new Set<number>();
+  const resolvedOn = new Map<number, string>();
+  let endedOn: string | null = null;
+  const end = (d: string) => {
+    if (endedOn === null || d < endedOn) endedOn = d;
+  };
+  const evs = caseEvents.filter((e) => e.occurredOn >= outlook.asOf).sort((a, b) => a.occurredOn.localeCompare(b.occurredOn));
+  for (const e of evs) {
+    const all = ms
+      .map((_, i) => i)
+      .filter((i) => couldProduce(ms[i], e) && (!ROUTINE_RULINGS.has(e.type) || inWindow(ms[i], e.occurredOn)));
+    const sameDay = all.find((i) => resolvedOn.get(i) === e.occurredOn);
+    if (sameDay !== undefined) {
+      if (ms[sameDay].terminal && all.length === 1) end(e.occurredOn);
+      continue; // absorbed by the milestone it resolved today
+    }
+    const open = all.filter((i) => !resolved.has(i));
+    if (open.length === 0) continue;
+    const rank = (i: number) => [inWindow(ms[i], e.occurredOn) ? 0 : 1, ms[i].terminal ? 1 : 0, -density(ms[i]), i];
+    open.sort((a, b) => {
+      const ra = rank(a);
+      const rb = rank(b);
+      for (let k = 0; k < ra.length; k++) if (ra[k] !== rb[k]) return ra[k] - rb[k];
+      return 0;
+    });
+    const i = open[0];
+    resolved.add(i);
+    resolvedOn.set(i, e.occurredOn);
+    if (ms[i].terminal && all.length === 1) end(e.occurredOn);
+  }
+  return { resolved, ended: endedOn !== null, endedOn };
 }
 
 // ---------------------------------------------------------------------------
@@ -200,4 +299,19 @@ export function milestoneValue(m: Milestone, t: CreditTarget, scoring: ScoringSe
     if (any) scoreChance += o.probability;
   }
   return { points, scoreChance };
+}
+
+/**
+ * Points each outcome would give this lawyer or firm IF the milestone happens
+ * (same crediting as milestoneValue), for the weekly range.
+ */
+export function milestoneOutcomePoints(m: Milestone, t: CreditTarget, scoring: ScoringSettings): { probability: number; points: number }[] {
+  const mult = t.kind === "firm" ? scoring.firmMultiplier : 1;
+  return m.outcomes.map((o) => ({
+    probability: o.probability,
+    points: o.events.reduce(
+      (sum, e) => sum + ((e.lawyerId ? t.ids.has(e.lawyerId) : e.side ? t.sides.has(e.side) : false) ? scoring.values[e.type] * mult : 0),
+      0,
+    ),
+  }));
 }

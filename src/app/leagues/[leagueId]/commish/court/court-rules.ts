@@ -425,17 +425,7 @@ export function normName(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-const FIRM_SUFFIXES = new Set(["llp", "llc", "pllc", "lllp", "pc", "pa", "lp", "ltd", "inc", "plc", "l", "p", "c", "a"]);
-
-/**
- * Comparable key for a firm name, ignoring punctuation, "and"/"&" and entity
- * suffixes: "Cravath, Swaine & Moore LLP" and "Cravath, Swaine and Moore" → "cravath swaine moore".
- */
-export function firmKey(name: string): string {
-  const t = tokens(name).filter((w) => w !== "and");
-  while (t.length > 1 && FIRM_SUFFIXES.has(t[t.length - 1])) t.pop();
-  return t.join(" ");
-}
+export { firmKey } from "@/lib/firms";
 
 /** Default position for a new lawyer added to a case of this type ("" = make the commissioner pick). */
 export function guessPosition(caseType: CaseType, side: Side | null = null): Exclude<Position, "firm"> | "" {

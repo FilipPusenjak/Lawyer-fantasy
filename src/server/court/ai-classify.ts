@@ -75,7 +75,7 @@ Sides: "plaintiff" means the first-named side of the case (plaintiff, prosecutio
 Which side each event credits:
 - filing: the side that filed it. Use for substantive filings only: motions, briefs, oppositions, replies, complaints, indictments, notices of appeal, sentencing memoranda.
 - motion_granted / motion_denied: the side that MADE the motion. A partial grant is motion_granted.
-- summary_judgment_won: the side whose summary judgment motion was granted in full (a denial is motion_denied for the movant; a partial grant is motion_granted).
+- summary_judgment_won: the side whose summary judgment motion was granted in full (a denial is motion_denied for the movant; a partial grant is motion_granted). A motion for partial summary judgment is motion_granted even when granted in full.
 - dismissed_favorable: the side that benefits when the case or all claims against it are dismissed with prejudice. A dismissal without prejudice or of only some claims is motion_granted for the movant. In a criminal case, the government dropping some counts (for example as part of a plea deal) is skipped.
 - verdict_win: the side that won a jury or bench verdict (not guilty = defendant; guilty = plaintiff; civil verdict = the winning party). The matching loss for the other side is added automatically.
 - settlement_favorable: a settlement or voluntary dismissal that the text says resolves the case; side "unclear" unless the text says which side it favors.
@@ -84,7 +84,7 @@ Which side each event credits:
 - plea_reduced: the text says the plea is to reduced or lesser charges; credits defendant. Use guilty_plea instead when the text does not say the charges were reduced.
 - sanctioned: the court actually imposes sanctions on a lawyer (not a motion asking for them, not a show-cause order). Side is always "unclear". Put the lawyer's ref (like "L2") in lawyer_ref only if the text names that listed lawyer; otherwise leave lawyer_ref empty.
 
-Skip (decision "skip", event_type "none") anything clerical or procedural: notices of appearance or withdrawal, pro hac vice, scheduling and calendar entries, hearing notices, minute entries with no ruling, extensions of time, stipulations about deadlines, transcripts, certificates of service, summonses, sealing and redaction, exhibits and exhibit lists, proposed orders, clerk's notes, magistrate judges' reports and recommendations (not final rulings), status reports, and orders that do not rule on a substantive motion.
+Skip (decision "skip", event_type "none") anything clerical or procedural: notices of appearance or withdrawal, pro hac vice, scheduling and calendar entries, hearing notices, minute entries with no ruling, extensions of time, stipulations about deadlines, transcripts, certificates of service, summonses, sealing and redaction, exhibits and exhibit lists, proposed orders, clerk's notes, magistrate judges' reports and recommendations (not final rulings), status reports, letters to the court (including Rule 28(j) supplemental-authority letters and responses), and orders that do not rule on a substantive motion.
 
 Rules:
 - Use only what the docket text says. Never guess an outcome the text does not state.

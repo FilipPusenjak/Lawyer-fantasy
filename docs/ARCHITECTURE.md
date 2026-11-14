@@ -113,11 +113,20 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
 - `src/lib/projections.ts` (`projectPool`) projects every lawyer and firm per
   week: their own recent history blended with a prior. For cases with a
   researched outlook (`cases.outlook`, `src/lib/outlook.ts`) the prior uses the
-  case's real docket activity, and scheduled/likely events (arguments, trials,
-  decisions, pleas…) are added in the weeks they could happen, conditioned on not
-  having happened yet; a terminal event stops the case's activity. Approved
-  events after the research date resolve milestones. Cases without an outlook
-  use typical rates per case type.
+  case's real docket activity (switching to a post-event pace after a milestone
+  with `activityAfter`, e.g. a verdict), and scheduled/likely events
+  (arguments, trials, decisions, pleas…) are added in the weeks they could
+  happen. Timing conditions only on complete weeks and only on what an approved
+  event would have shown (a sentencing leaves no event); a terminal event stops
+  the case's activity. `resolveMilestones` ties each approved event after the
+  research date to the one milestone that could have produced it (same type and
+  side or lawyer; routine rulings only inside the window) and never ends a case
+  on an ambiguous match. On researched cases, own history counts only recurring
+  activity (filings, rulings), so a one-off verdict isn't projected weekly. The
+  weekly range mixes the target week's scheduled outcomes into the base range.
+  Cases without an outlook use typical rates per case type.
+- Firms are matched by `firmKey` (`src/lib/firms.ts`) on import, so two
+  spellings of one firm never become two firms.
 - Season rank (`overallRank`) = projected points over the rest of the season;
   draft ranks follow it ("Use projection ranks"). Week rank = this week's
   projection. The Rankings page opens on season points before the season and on

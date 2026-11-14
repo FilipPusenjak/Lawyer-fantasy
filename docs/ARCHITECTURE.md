@@ -72,7 +72,8 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
   latest finalized week can be reopened; reopening deletes any playoff round
   that finalizing it created (such a round has no finalized weeks yet), and it
   is rebuilt with fresh seeding when re-finalized. `finalizeEndedWeeks`
-  finalizes every ended week in order (used by the seed).
+  finalizes every ended week in order (used by the seed). When the season completes, open trades are
+  failed ("season ended") and pending waiver claims are marked lost.
 - **Cron**: `vercel.json` schedules `/api/cron/daily` once a day at 09:17 UTC
   (Vercel Hobby limit). It needs `CRON_SECRET` set in Vercel (401 otherwise)
   and returns 500 if any league's maintenance throws. League pages also run

@@ -87,6 +87,7 @@ export function ResultForm({ action, children, className }: { action: FormAction
   const show = useContext(ShowResultContext);
   const [pending, startFormTransition] = useTransition();
   if (!show) throw new Error("ResultForm must be inside <ResultToastProvider>.");
+  const notify = show; // narrowed copy for use inside the async closure
   // No-JS fallback: post straight to the Server Action (its result is dropped).
   const fallback: (formData: FormData) => void = action.bind(null, null);
 
@@ -99,7 +100,7 @@ export function ResultForm({ action, children, className }: { action: FormAction
     startFormTransition(async () => {
       const result = await action(null, formData);
       // This form may be gone by now; the provider isn't.
-      startTransition(() => show(result));
+      startTransition(() => notify(result));
     });
   }
 

@@ -89,6 +89,8 @@ export async function joinLeague(db: DbOrTx, args: { inviteCode: string; userId:
     .from(leagueMembers)
     .where(and(eq(leagueMembers.leagueId, league.id), eq(leagueMembers.userId, args.userId)));
   if (existing) return league.id;
+  if (league.status === "drafting") throw new UserError("This league's draft is in progress, so it can't take new teams.");
+  if (league.status === "complete") throw new UserError("This league's season is over.");
   if (league.status !== "setup") throw new UserError("This league has already drafted, so it can't take new teams.");
   const settings = parseLeagueSettings(league.settings);
   const current = await db.select({ id: teams.id }).from(teams).where(eq(teams.leagueId, league.id));

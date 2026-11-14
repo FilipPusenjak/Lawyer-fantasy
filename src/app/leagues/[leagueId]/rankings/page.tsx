@@ -129,7 +129,9 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
   const byRos = filters.sort === "ros";
 
   const subtitle = complete
-    ? "Season complete"
+    ? league.status === "complete"
+      ? "Season complete"
+      : "No weeks left to project"
     : weeks.phase === "preseason"
       ? `Projections for week 1 · season starts ${formatShortDate(proj.seasonStart)}`
       : `Projections for week ${weeks.targetWeek}`;

@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   for (const league of active) {
     const t0 = Date.now();
     try {
-      await runLeagueMaintenance(league.id, new Date());
+      await runLeagueMaintenance(league.id, new Date(), undefined, { strict: true });
       results.push({ leagueId: league.id, status: league.status, ok: true, ms: Date.now() - t0 });
     } catch (e) {
       // One broken league shouldn't stop the others.

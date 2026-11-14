@@ -23,7 +23,7 @@ import {
   type TradeSettings,
   type WaiverSettings,
 } from "@/lib/settings";
-import { dayOfWeek } from "@/lib/time";
+import { dayOfWeek, editableWeek } from "@/lib/time";
 import { UserError } from "@/server/action-result";
 import { hashPassword } from "@/server/auth/password";
 import { generateInviteCode, scheduleNextWaiverRun } from "./league";
@@ -181,7 +181,7 @@ export async function saveScoringSettings(db: DbOrTx, leagueId: string, scoring:
 export async function saveScheduleSettings(
   db: DbOrTx,
   leagueId: string,
-  input: { seasonStart: string; schedule: ScheduleSettings },
+  input: { seasonStart: string; schedule: ScheduleSettings; now?: Date },
 ): Promise<LeagueSettings> {
   return withLockedLeague(db, leagueId, async (tx, l) => {
     const cur = l.settings.schedule;
@@ -207,6 +207,19 @@ export async function saveScheduleSettings(
       }
     }
     if (totalSeasonWeeks(s) > MAX_SEASON_WEEKS) throw new UserError(`The season can be at most ${MAX_SEASON_WEEKS} weeks long.`);
+    if (s.lockTime !== cur.lockTime && l.league.status !== "setup") {
+      // A week that has already locked must stay locked: moving the lock time
+      // later on lock day would let everyone rewrite that week's lineup.
+      const now = input.now ?? new Date();
+      const clock = (lockTime: string, timeZone: string) => ({ seasonStart: input.seasonStart, lockTime, timeZone });
+      const before = editableWeek(now, clock(cur.lockTime, cur.timezone));
+      const after = editableWeek(now, clock(s.lockTime, s.timezone));
+      if (after < before) {
+        throw new UserError(
+          `Week ${after} lineups already locked, and that lock time would reopen them. Try again after this week's lock day, or pick an earlier time.`,
+        );
+      }
+    }
     return writeSettings(tx, leagueId, { ...l.settings, schedule: s }, { seasonStart: input.seasonStart });
   });
 }

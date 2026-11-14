@@ -126,6 +126,10 @@ export type LawyerUsage = {
   draftPicks: number;
   /** Approved scoring events that name this lawyer directly. */
   approvedEvents: number;
+  /** Lineup rows (any league) that start this lawyer. Deleting them would rewrite those weeks' scores. */
+  lineupStarts?: number;
+  /** Approved case events this lawyer earned points from through their case appearances. */
+  caseEvents?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -331,7 +335,7 @@ export async function updateFirm(db: DbOrTx, poolId: string, firmId: string, inp
 
 /** What would block deleting a lawyer/firm. */
 export async function lawyerUsage(db: DbOrTx, lawyerId: string): Promise<LawyerUsage> {
-  const [rostered, [picks], [events]] = await Promise.all([
+  const [rostered, [picks], [events], lineupRows, caseRows] = await Promise.all([
     db
       .selectDistinct({ name: leagues.name })
       .from(rosterSpots)
@@ -342,8 +346,21 @@ export async function lawyerUsage(db: DbOrTx, lawyerId: string): Promise<LawyerU
       .select({ n: count() })
       .from(scoringEvents)
       .where(and(eq(scoringEvents.lawyerId, lawyerId), eq(scoringEvents.status, "approved"))),
+    db.execute(sql`select count(*)::int as n from lineups where starters @> ${JSON.stringify([lawyerId])}::jsonb`),
+    db.execute(
+      sql`select count(*)::int as n from scoring_events e
+          join case_appearances a on a.case_id = e.case_id and a.side = e.side
+          where a.lawyer_id = ${lawyerId} and e.status = 'approved'`,
+    ),
   ]);
-  return { rosteredIn: rostered.map((r) => r.name), draftPicks: picks?.n ?? 0, approvedEvents: events?.n ?? 0 };
+  const n = (r: { rows: unknown[] }) => Number((r.rows[0] as { n?: number } | undefined)?.n ?? 0);
+  return {
+    rosteredIn: rostered.map((r) => r.name),
+    draftPicks: picks?.n ?? 0,
+    approvedEvents: events?.n ?? 0,
+    lineupStarts: n(lineupRows),
+    caseEvents: n(caseRows),
+  };
 }
 
 /** Why a lawyer/firm can't be deleted, or null if it can. */
@@ -356,6 +373,9 @@ export function deleteBlocker(name: string, usage: LawyerUsage): string | null {
   }
   if (usage.approvedEvents > 0) {
     return `${name} has approved scoring events. Move those back to pending or reject them first.`;
+  }
+  if ((usage.lineupStarts ?? 0) > 0 || (usage.caseEvents ?? 0) > 0) {
+    return `${name} has already scored or been in a starting lineup, so deleting them would change past scores. Leave them in the pool instead.`;
   }
   return null;
 }

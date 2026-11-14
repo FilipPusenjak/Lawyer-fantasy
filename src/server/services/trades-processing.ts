@@ -8,19 +8,25 @@ import { executeTrade } from "./trades";
  * passed. One cheap indexed query when nothing is due. Each trade runs in its
  * own transaction; executeTrade locks the trade and no-ops unless it is still
  * `accepted`, so concurrent page views / cron runs can't execute it twice.
+ *
+ * By default errors are logged and the trade is retried on the next run (a page
+ * view must never break over one trade). With `strict`, every due trade is
+ * still attempted, then the first error is rethrown so the cron can report it.
  */
-export async function processDueTrades(db: DbOrTx, leagueId: string, now: Date): Promise<void> {
+export async function processDueTrades(db: DbOrTx, leagueId: string, now: Date, opts: { strict?: boolean } = {}): Promise<void> {
   const due = await db
     .select({ id: trades.id })
     .from(trades)
     .where(and(eq(trades.leagueId, leagueId), eq(trades.status, "accepted"), lte(trades.reviewEndsAt, now)))
     .orderBy(asc(trades.reviewEndsAt), asc(trades.createdAt));
+  let firstError: unknown = null;
   for (const t of due) {
     try {
       await executeTrade(db, t.id, now);
     } catch (e) {
-      // Never break a page view over one trade; the next maintenance run retries it.
       console.error(`processDueTrades: trade ${t.id} failed to process`, e);
+      firstError ??= e;
     }
   }
+  if (opts.strict && firstError) throw firstError;
 }

@@ -21,6 +21,7 @@ import { currentWeek } from "@/lib/time";
 import { UserError } from "@/server/action-result";
 import { leagueClock } from "./lineups";
 import { addLawyerToTeam, logTransaction, maxRosterSize, removeLawyerFromTeam } from "./roster";
+import { clearDropFromPendingClaims } from "./transactions-moves";
 
 // ---------------------------------------------------------------------------
 // Pure rules (unit tested in tests/unit/trades-rules.test.ts)
@@ -566,6 +567,8 @@ export async function executeTrade(
             toWaivers: false,
             now,
           });
+          // Pending waiver claims that planned to drop this lawyer keep going without the drop.
+          await clearDropFromPendingClaims(sp, it.fromTeamId, it.lawyerId);
         }
         for (const it of items) {
           await addLawyerToTeam(sp, {

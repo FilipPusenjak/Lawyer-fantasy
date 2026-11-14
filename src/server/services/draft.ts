@@ -595,7 +595,14 @@ export async function startDraft(db: DbOrTx, leagueId: string, now: Date = new D
       startedAt: now,
       completedAt: null,
     });
-    await tx.update(leagues).set({ status: "drafting" }).where(eq(leagues.id, leagueId));
+    // Playoff spots can't exceed the teams that actually joined (a 4-team bracket
+    // in a 2-team league would add rounds and weeks that can never be played).
+    const cappedPlayoffTeams = Math.min(settings.schedule.playoffTeams, n);
+    const leagueUpdate =
+      cappedPlayoffTeams !== settings.schedule.playoffTeams
+        ? { status: "drafting" as const, settings: { ...settings, schedule: { ...settings.schedule, playoffTeams: cappedPlayoffTeams < 2 ? 0 : cappedPlayoffTeams } } }
+        : { status: "drafting" as const };
+    await tx.update(leagues).set(leagueUpdate).where(eq(leagues.id, leagueId));
     return started;
   });
 }

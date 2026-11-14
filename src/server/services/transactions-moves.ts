@@ -142,7 +142,7 @@ async function teamRosterCount(tx: DbOrTx, teamId: string): Promise<number> {
 }
 
 /** Pending claims that planned to drop this lawyer keep going, just without the drop. */
-async function clearDropFromPendingClaims(tx: DbOrTx, teamId: string, lawyerId: string): Promise<void> {
+export async function clearDropFromPendingClaims(tx: DbOrTx, teamId: string, lawyerId: string): Promise<void> {
   await tx
     .update(waiverClaims)
     .set({ dropLawyerId: null })

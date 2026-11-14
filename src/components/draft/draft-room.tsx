@@ -62,7 +62,7 @@ type Props = {
   scheduledLabel: string | null;
   /** Where the season stands, for the card shown once the draft is done. */
   afterDraft: AfterDraftInfo;
-  /** Scouting projections by lawyer id (projected points for the upcoming week). */
+  /** Scouting projections by lawyer id (the list shows projected season points). */
   projections?: Record<string, ProjectionSummary>;
 };
 

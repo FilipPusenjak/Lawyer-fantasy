@@ -19,6 +19,7 @@ import { canManagePool, getLeagueContext } from "@/server/league-context";
 import { countPoolLeagues, getLeagueProjections, type LeagueProjectionRow } from "@/server/services/projections";
 import { applyProjectionRanksAction } from "./actions";
 import {
+  defaultRankFilters,
   draftPositionRanks,
   filterRankRows,
   parseRankFilters,
@@ -85,8 +86,8 @@ function ApplyRanksForm({ leagueId, poolLeagueCount, prominent }: { leagueId: st
   return (
     <div className="space-y-2 text-sm">
       <p>
-        Sets every lawyer&apos;s and firm&apos;s draft rank to their projection rank (1 = highest projected week). Auto-pick in the
-        draft uses these ranks. This replaces any draft ranks set by hand.
+        Sets every lawyer&apos;s and firm&apos;s draft rank to their season rank (1 = most projected points over the rest of the
+        season). Auto-pick in the draft uses these ranks. This replaces any draft ranks set by hand.
       </p>
       <p className="text-muted">
         {poolLeagueCount > 1
@@ -99,7 +100,7 @@ function ApplyRanksForm({ leagueId, poolLeagueCount, prominent }: { leagueId: st
           variant={prominent ? "primary" : "secondary"}
           className="w-full"
           pendingText="Saving…"
-          confirm="Replace the draft rank of every lawyer and firm in this pool with their projection rank? Ranks set by hand will be lost."
+          confirm="Replace the draft rank of every lawyer and firm in this pool with their season rank? Ranks set by hand will be lost."
         >
           Use projection ranks
         </SubmitButton>
@@ -110,7 +111,6 @@ function ApplyRanksForm({ leagueId, poolLeagueCount, prominent }: { leagueId: st
 
 export default async function RankingsPage({ params, searchParams }: PageProps<"/leagues/[leagueId]/rankings">) {
   const { leagueId } = await params;
-  const filters = parseRankFilters(await searchParams);
   const ctx = await getLeagueContext(leagueId);
   const { league, team } = ctx;
   const myTeamId = team?.id ?? null;
@@ -121,6 +121,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
     ctx.isCommissioner ? canManagePool(ctx.user, league.poolId) : Promise.resolve(false),
   ]);
   const poolLeagueCount = canManage ? await countPoolLeagues(db, league.poolId) : 0;
+  const defaults = defaultRankFilters(proj.weeks.phase);
+  const filters = parseRankFilters(await searchParams, defaults);
 
   const { weeks } = proj;
   const lookback = proj.lookbackWeeks;
@@ -136,8 +138,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
       ? "Season complete"
       : "No weeks left to project"
     : weeks.phase === "preseason"
-      ? `Projections for week 1 · season starts ${formatShortDate(proj.seasonStart)}`
-      : `Projections for week ${weeks.targetWeek}`;
+      ? `Season starts ${formatShortDate(proj.seasonStart)} · ${weeks.remainingWeeks} weeks`
+      : `Week ${weeks.targetWeek} · ${weeks.remainingWeeks} weeks left`;
   const prominentApply = canManage && league.status === "setup";
   const applyCard = canManage ? <ApplyRanksForm leagueId={leagueId} poolLeagueCount={poolLeagueCount} prominent={prominentApply} /> : null;
 
@@ -171,14 +173,14 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
 
       <ChipRow label="Filter by position">
         {(["all", ...POSITIONS] as const).map((p) => (
-          <Chip key={p} href={rankingsHref(base, filters, { position: p })} active={filters.position === p}>
+          <Chip key={p} href={rankingsHref(base, filters, { position: p }, defaults)} active={filters.position === p}>
             {p === "all" ? "All" : POSITION_SHORT[p]}
           </Chip>
         ))}
       </ChipRow>
       <ChipRow label="Filter by status">
         {RANK_STATUS_FILTERS.filter((s) => s !== "mine" || team).map((s) => (
-          <Chip key={s} href={rankingsHref(base, filters, { status: s })} active={filters.status === s}>
+          <Chip key={s} href={rankingsHref(base, filters, { status: s }, defaults)} active={filters.status === s}>
             {RANK_STATUS_LABELS[s]}
           </Chip>
         ))}
@@ -188,7 +190,7 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
         {RANK_SORTS.map((s) => (
           <Link
             key={s}
-            href={rankingsHref(base, filters, { sort: s })}
+            href={rankingsHref(base, filters, { sort: s }, defaults)}
             className={cx("flex min-h-11 items-center font-semibold", filters.sort === s ? "text-brand" : "text-muted")}
             aria-current={filters.sort === s ? "true" : undefined}
           >
@@ -235,8 +237,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                         </>
                       ) : (
                         <>
-                          <span className="sr-only">{byDraft ? "Draft rank " : "Overall rank "}</span>
-                          {byDraft ? r.preseasonRank : r.overallRank}
+                          <span className="sr-only">{byDraft ? "Draft rank " : byRos ? "Season rank " : "Week rank "}</span>
+                          {byDraft ? r.preseasonRank : byRos ? r.overallRank : r.weekRank}
                         </>
                       )}
                     </span>
@@ -246,8 +248,10 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                       ) : (
                         <Badge tone={r.position === "firm" ? "accent" : "brand"}>{POSITION_SHORT[r.position]}</Badge>
                       )
-                    ) : (
+                    ) : byRos ? (
                       <RankBadge position={r.position} label={r.positionLabel} rank={r.positionRank} />
+                    ) : (
+                      <RankBadge position={r.position} label={r.weekPositionLabel} rank={r.weekPositionRank} />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -265,10 +269,8 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                     <p className="text-xs text-muted">{projectionInputsLine(r, lookback)}</p>
                     <p className="text-xs text-muted">
                       {byDraft
-                        ? `Projection rank #${r.overallRank} (${r.positionLabel})`
-                        : r.preseasonRank
-                          ? `Draft rank #${r.preseasonRank}`
-                          : "No draft rank"}
+                        ? `Season rank #${r.overallRank} (${r.positionLabel})`
+                        : `${byRos ? `Week rank #${r.weekRank}` : `Season rank #${r.overallRank}`} · ${r.preseasonRank ? `Draft rank #${r.preseasonRank}` : "No draft rank"}`}
                     </p>
                   </div>
                   <div className="w-16 shrink-0 text-right">
@@ -294,7 +296,7 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
           Showing {shown.length} of {plural(matches.length, "lawyer")}
         </span>
         {matches.length > shown.length ? (
-          <LinkButton href={rankingsHref(base, filters, { limit: filters.limit + RANK_PAGE_STEP })} variant="secondary">
+          <LinkButton href={rankingsHref(base, filters, { limit: filters.limit + RANK_PAGE_STEP }, defaults)} variant="secondary">
             Show more
           </LinkButton>
         ) : null}
@@ -317,7 +319,16 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                 earlier counts half as much. Weeks with no events count as 0 points.
               </li>
               <li>
-                <strong>Typical rate.</strong> For each case type (civil, criminal, appeal…) we work out the average points per week
+                <strong>Researched cases.</strong> Most cases in this pool were researched from public court records (each case shows
+                its status and the date it was checked). For those, the weekly rate comes from how busy that case&apos;s docket really
+                is: filings and rulings per side. Known or likely events this season (Supreme Court arguments, trials, decisions,
+                rulings on major motions, pleas, settlements) are added in the weeks they could happen, using standard base rates
+                adjusted for each case&apos;s record: for example, about 83% of federal criminal trials end in a conviction, the Supreme
+                Court reverses about 70% of the cases it hears, and appeals courts affirm about 75% of the time. A Supreme Court
+                argument counts only for the lawyer expected to argue. After an event that ends a case, its weekly activity stops.
+              </li>
+              <li>
+                <strong>Typical rate.</strong> For cases that weren&apos;t researched, for each case type (civil, criminal, appeal…) we work out the average points per week
                 that one active case earns across this player pool, then add that up over the lawyer&apos;s active cases. If the
                 pool has no approved events yet, we use typical event frequencies with the league&apos;s point values.
               </li>
@@ -340,7 +351,11 @@ export default async function RankingsPage({ params, searchParams }: PageProps<"
                 expected to have) any points.
               </li>
               <li>
-                <strong>Rest of season</strong> = projected weekly points × weeks left
+                <strong>Season rank</strong> orders everyone by projected points over the rest of the season, which is what draft
+                ranks follow. <strong>Week rank</strong> orders by this week&apos;s projection, which is what matters for lineups.
+              </li>
+              <li>
+                <strong>Rest of season</strong> = the sum of each remaining week&apos;s projection
                 {complete ? " (none — the season is over)" : ` (${plural(weeks.remainingWeeks, "week")}, including week ${weeks.targetWeek})`}.
               </li>
             </ul>

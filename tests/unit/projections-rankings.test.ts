@@ -12,6 +12,7 @@ import {
 } from "@/lib/projections";
 import type { Position } from "@/lib/settings";
 import {
+  defaultRankFilters,
   draftPositionRanks,
   filterRankRows,
   parseRankFilters,
@@ -178,6 +179,17 @@ describe("rankings filters", () => {
     const pos = draftPositionRanks(rows);
     expect(pos.get("s")).toBe(1);
     expect(pos.get("z")).toBe(2);
+  });
+
+  it("opens on season points before the season, on this week's projection after", () => {
+    expect(defaultRankFilters("preseason").sort).toBe("ros");
+    expect(defaultRankFilters("in_season").sort).toBe("week");
+    expect(defaultRankFilters("complete").sort).toBe("week");
+    const pre = defaultRankFilters("preseason");
+    expect(parseRankFilters({}, pre).sort).toBe("ros");
+    expect(parseRankFilters({ sort: "week" }, pre).sort).toBe("week");
+    expect(rankingsHref(base, pre, {}, pre)).toBe(base);
+    expect(rankingsHref(base, pre, { sort: "week" }, pre)).toBe(`${base}?sort=week`);
   });
 
   it("opens on projections; draft rank is an explicit sort", () => {

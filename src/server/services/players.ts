@@ -5,6 +5,7 @@
  */
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { parseCaseOutlook } from "@/lib/outlook";
 import type { DbOrTx } from "@/db";
 import {
   caseAppearances,
@@ -102,6 +103,8 @@ export type LawyerCase = {
   sourceUrl: string | null;
   /** Which of the requested lawyers appear on the case, and on which side. */
   appearances: { lawyerId: string; lawyerName: string; side: Side }[];
+  /** Researched status (neutral, factual) and when it was researched, if any. */
+  statusNote: { stage: string; asOf: string } | null;
 };
 
 /** Cases where any of the given lawyers appear (for a firm, pass the firm and its lawyers). */
@@ -117,6 +120,7 @@ export async function loadLawyerCases(db: DbOrTx, poolId: string, lawyerIds: str
       status: cases.status,
       filedOn: cases.filedOn,
       sourceUrl: cases.sourceUrl,
+      outlook: cases.outlook,
       lawyerId: caseAppearances.lawyerId,
       lawyerName: lawyers.name,
       side: caseAppearances.side,
@@ -139,6 +143,10 @@ export async function loadLawyerCases(db: DbOrTx, poolId: string, lawyerIds: str
         filedOn: r.filedOn,
         sourceUrl: r.sourceUrl,
         appearances: [],
+        statusNote: (() => {
+          const o = parseCaseOutlook(r.outlook);
+          return o && o.stage ? { stage: o.stage, asOf: o.asOf } : null;
+        })(),
       };
       byCase.set(r.id, c);
     }

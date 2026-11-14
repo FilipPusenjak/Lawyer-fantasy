@@ -11,7 +11,7 @@ export const RANK_STATUS_LABELS: Record<RankStatusFilter, string> = { all: "All"
 
 export const RANK_SORTS = ["week", "ros", "draft"] as const;
 export type RankSort = (typeof RANK_SORTS)[number];
-export const RANK_SORT_LABELS: Record<RankSort, string> = { draft: "Draft rank", week: "Projected week", ros: "Rest of season" };
+export const RANK_SORT_LABELS: Record<RankSort, string> = { draft: "Draft rank", week: "This week", ros: "Season" };
 
 export const RANK_PAGE_STEP = 100;
 export const RANK_MAX_LIMIT = 1000;
@@ -23,8 +23,15 @@ export type RankFilters = {
   limit: number;
 };
 
-/** Opens on projections; "Draft rank" (the commissioner's order, used by the draft room and auto-pick) is one tap away. */
 export const DEFAULT_RANK_FILTERS: RankFilters = { position: "all", status: "all", sort: "week", limit: RANK_PAGE_STEP };
+
+/**
+ * Before the season the page opens on projected season points (the order
+ * draft ranks follow); once games start, on the week's projection.
+ */
+export function defaultRankFilters(phase: "preseason" | "in_season" | "complete"): RankFilters {
+  return { ...DEFAULT_RANK_FILTERS, sort: phase === "preseason" ? "ros" : "week" };
+}
 
 type RawParams = Record<string, string | string[] | undefined>;
 
@@ -45,8 +52,8 @@ function parsePosition(raw: string | undefined): Position | "all" {
   return byShort ?? "all";
 }
 
-/** Read filters from the URL; bad values fall back to defaults. */
-export function parseRankFilters(sp: RawParams): RankFilters {
+/** Read filters from the URL; bad values fall back to `defaults` (see defaultRankFilters). */
+export function parseRankFilters(sp: RawParams, defaults: RankFilters = DEFAULT_RANK_FILTERS): RankFilters {
   const limitRaw = first(sp.limit);
   let limit = RANK_PAGE_STEP;
   if (limitRaw && /^\d{1,5}$/.test(limitRaw)) {
@@ -55,20 +62,20 @@ export function parseRankFilters(sp: RawParams): RankFilters {
   }
   return {
     position: parsePosition(first(sp.pos)),
-    status: oneOf(RANK_STATUS_FILTERS, first(sp.status), DEFAULT_RANK_FILTERS.status),
-    sort: oneOf(RANK_SORTS, first(sp.sort), DEFAULT_RANK_FILTERS.sort),
+    status: oneOf(RANK_STATUS_FILTERS, first(sp.status), defaults.status),
+    sort: oneOf(RANK_SORTS, first(sp.sort), defaults.sort),
     limit,
   };
 }
 
 /** Link with some filters changed; defaults are left out of the URL. Changing filters resets paging. */
-export function rankingsHref(base: string, f: RankFilters, patch: Partial<RankFilters> = {}): string {
+export function rankingsHref(base: string, f: RankFilters, patch: Partial<RankFilters> = {}, defaults: RankFilters = DEFAULT_RANK_FILTERS): string {
   const next = { ...f, ...patch };
   if (!("limit" in patch)) next.limit = RANK_PAGE_STEP;
   const params = new URLSearchParams();
-  if (next.position !== DEFAULT_RANK_FILTERS.position) params.set("pos", next.position);
-  if (next.status !== DEFAULT_RANK_FILTERS.status) params.set("status", next.status);
-  if (next.sort !== DEFAULT_RANK_FILTERS.sort) params.set("sort", next.sort);
+  if (next.position !== defaults.position) params.set("pos", next.position);
+  if (next.status !== defaults.status) params.set("status", next.status);
+  if (next.sort !== defaults.sort) params.set("sort", next.sort);
   if (next.limit !== RANK_PAGE_STEP) params.set("limit", String(next.limit));
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;

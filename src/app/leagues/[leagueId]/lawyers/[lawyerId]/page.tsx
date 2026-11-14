@@ -200,27 +200,29 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
               </Link>
             }
           >
-            {proj.weeks.phase === "complete" ? "Projection" : `Projection · week ${proj.weeks.targetWeek}`}
+            Projection
           </CardTitle>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Projected</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                {proj.weeks.phase === "complete" ? "Per week" : `Week ${proj.weeks.targetWeek}`}
+              </p>
               <p className="font-display text-3xl font-bold tabular-nums">{fmtProjection(pr.projectedWeek)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Range</p>
-              <p className="font-display text-xl font-bold tabular-nums">{projectionRangeLabel(pr)}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Rest of season</p>
+              <p className="font-display text-3xl font-bold tabular-nums">{fmtProjection(pr.restOfSeason)}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Proj. rank</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Season rank</p>
               <p className="font-display text-xl font-bold tabular-nums">
                 #{pr.overallRank} · {pr.positionLabel}
               </p>
             </div>
           </div>
           <p className="mt-2 text-sm text-muted">
-            {projectionInputsLine(pr, proj.lookbackWeeks)} · weeks with points {activityLabel(pr)} · rest of season{" "}
-            {fmtProjection(pr.restOfSeason)}
+            {projectionInputsLine(pr, proj.lookbackWeeks)} · weeks with points {activityLabel(pr)} · week range{" "}
+            {projectionRangeLabel(pr)} · week rank #{pr.weekRank}
           </p>
           <p className="mt-1 text-xs text-muted">{PROJECTION_DISCLAIMER}</p>
         </Card>
@@ -296,6 +298,11 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
                     </Badge>
                   ))}
                 </div>
+                {c.status === "active" && c.statusNote ? (
+                  <p className="mt-1.5 text-sm">
+                    {c.statusNote.stage} <span className="text-xs text-muted">(as of {formatDate(c.statusNote.asOf)})</span>
+                  </p>
+                ) : null}
                 <SourceLink url={c.sourceUrl} />
               </li>
             ))}

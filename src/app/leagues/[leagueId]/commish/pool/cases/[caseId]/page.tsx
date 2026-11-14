@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { Badge, Card, CardTitle, EmptyState, Field, LinkButton, ListRow, Notice, Page, PageHeader, Select } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { isUuid } from "@/lib/format";
+import { parseCaseOutlook } from "@/lib/outlook";
 import { CASE_TYPE_LABELS, POSITION_SHORT, sideLabel, SIDES } from "@/lib/settings";
 import { formatDate } from "@/lib/time";
 import { canManagePool, getCommissionerContext } from "@/server/league-context";
@@ -33,6 +34,7 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
   const onCase = new Set(appearances.map((a) => a.lawyerId));
   const available = options.filter((o) => !onCase.has(o.id));
   const base = `/leagues/${leagueId}/commish`;
+  const outlook = parseCaseOutlook(c.outlook);
 
   return (
     <Page className="space-y-4">
@@ -46,6 +48,37 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
         <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-sm font-semibold text-accent underline">
           View public record ↗
         </a>
+      ) : null}
+
+      {outlook ? (
+        <Card className="space-y-2">
+          <CardTitle>Research behind projections</CardTitle>
+          <p className="text-sm">{outlook.stage}</p>
+          <p className="text-sm text-muted">
+            <span className="font-semibold text-ink">Docket activity:</span> {outlook.activity.basis}
+          </p>
+          <p className="text-xs text-muted">
+            Checked {formatDate(outlook.asOf)} from public records. Projections use it for this case&apos;s weekly activity and for{" "}
+            {outlook.milestones.length === 1 ? "1 possible key event" : `${outlook.milestones.length} possible key events`} this season.
+            Real points still only come from events you approve.
+          </p>
+          {outlook.sources.length > 0 ? (
+            <details>
+              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-accent">
+                Sources ({outlook.sources.length})
+              </summary>
+              <ul className="space-y-1 text-xs">
+                {outlook.sources.map((u) => (
+                  <li key={u} className="break-all">
+                    <a href={u} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                      {u}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </Card>
       ) : null}
 
       <Card>

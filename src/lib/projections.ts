@@ -850,14 +850,14 @@ export function fmtProjection(n: number): string {
 }
 
 /**
- * Factual inputs line, e.g. "4 active cases · 6 scoring events in the last 8 weeks · 2 scheduled events".
+ * Factual inputs line, e.g. "4 active cases · 6 scoring events in the last 8 weeks · 2 case milestones this season".
  */
 export function projectionInputsLine(p: Pick<LawyerProjection, "inputs">, lookbackWeeks: number): string {
   const parts = [
     plural(p.inputs.activeCases, "active case"),
     `${plural(p.inputs.eventsLookback, "scoring event")} in the last ${plural(lookbackWeeks, "week")}`,
   ];
-  if (p.inputs.scheduledEvents > 0) parts.push(`${plural(p.inputs.scheduledEvents, "scheduled event")} this season`);
+  if (p.inputs.scheduledEvents > 0) parts.push(`${plural(p.inputs.scheduledEvents, "case milestone")} this season`);
   return parts.join(" · ");
 }
 

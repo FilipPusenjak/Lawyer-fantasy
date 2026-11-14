@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, EmptyState, Input, Select, cx } from "@/components/ui";
 import { POSITIONS, POSITION_LABELS, POSITION_SHORT, SLOT_LABELS, type Position, type RosterSettings } from "@/lib/settings";
-import { compareByProjectionRank, fmtProjection, type ProjectionSummary } from "@/lib/projections";
+import { compareByProjectionRank, type ProjectionSummary } from "@/lib/projections";
 import {
   buildBoard,
   filterAvailable,
@@ -116,9 +116,10 @@ export function LawyersPanel({
             onClick={() => onFilters({ ...filters, sort: s, limit: PAGE_SIZE })}
             className={cx("min-h-11 px-1 font-semibold", sort === s ? "text-brand" : "text-muted")}
           >
-            {s === "rank" ? "Draft rank" : "Projection"}
+            {s === "rank" ? "Draft rank" : "Projected season"}
           </button>
         ))}
+        <span className="ml-auto">Pts = projected season</span>
       </div>
       {list.length === 0 ? (
         <div className="mt-3">
@@ -138,8 +139,8 @@ export function LawyersPanel({
                     <span className="truncate">{l.organization ?? (l.kind === "firm" ? "Law firm" : "")}</span>
                   </p>
                 </div>
-                <span className="w-10 shrink-0 text-right font-display text-sm tabular-nums" title="Projected points next week">
-                  {projections[l.id] ? fmtProjection(projections[l.id].projectedWeek) : "–"}
+                <span className="w-12 shrink-0 text-right font-display text-sm tabular-nums" title="Projected points this season">
+                  {projections[l.id] ? Math.round(projections[l.id].restOfSeason) : "–"}
                 </span>
                 {actions.canDraft ? (
                   <Button className="shrink-0 px-3" disabled={actions.busy} onClick={() => actions.onDraft(l)}>

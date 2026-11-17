@@ -18,16 +18,16 @@ import {
 } from "@/lib/settings";
 import { currentWeek, formatDate } from "@/lib/time";
 import { getLeagueContext } from "@/server/league-context";
-import { leagueClock } from "@/server/services/lineups";
+import { editableWeekStarters, leagueClock } from "@/server/services/lineups";
 import { getPoolLawyer, loadAvailability, loadEventDetails, loadLawyerCases, loadPendingClaimLawyerIds } from "@/server/services/players";
-import { getTeamRoster } from "@/server/services/roster";
+import { getTeamRoster, loadWaiverHoldTimes } from "@/server/services/roster";
 import { getScoreboard } from "@/server/services/scores";
 import { getLeagueProjectionsCached } from "@/server/services/projections";
 import { activityLabel, fmtProjection, PROJECTION_DISCLAIMER, projectionInputsLine, projectionRangeLabel } from "@/lib/projections";
 import { dropGoesToWaivers, movesOpen } from "@/server/services/transactions-moves";
 import { AddClaimButton, DropButton, MoveProvider } from "../../players/move-controls";
 import { AvailabilityBadge, LawyerLink, PositionBadge } from "../../players/player-bits";
-import { formatShortDay } from "../../players/player-filters";
+import { toDropOptions, waiversUntilDay } from "../../players/move-helpers";
 import { newTradeHref } from "@/app/leagues/[leagueId]/trades/trade-labels";
 import { barPercent, checkFinalizedWeeks, eventRows, safeHttpUrl, weeklyPoints } from "./lawyer-stats";
 
@@ -52,15 +52,16 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
   if (!lawyer) notFound();
 
   const base = `/leagues/${leagueId}`;
-  const tz = settings.schedule.timezone;
   const isFirm = lawyer.kind === "firm";
 
-  const [sb, availabilityMap, myRoster, myClaims, proj] = await Promise.all([
+  const [sb, availabilityMap, myRoster, myClaims, proj, myLineup, holdTimes] = await Promise.all([
     getScoreboard(leagueId),
     loadAvailability(db, leagueId),
     team ? getTeamRoster(db, team.id) : Promise.resolve([]),
     team ? loadPendingClaimLawyerIds(db, team.id) : Promise.resolve(new Map<string, number>()),
     getLeagueProjectionsCached(leagueId),
+    team && movesOpen(league.status) ? editableWeekStarters(db, { seasonStart: league.seasonStart, settings }, team.id) : null,
+    league.nextWaiverRunAt ? loadWaiverHoldTimes(db, leagueId) : new Map<string, Date>(),
   ]);
   const pr = proj.byLawyerId.get(lawyer.id);
 
@@ -107,7 +108,7 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
   const mySpot = myRoster.find((r) => r.id === lawyer.id);
   const claimOrder = myClaims.get(lawyer.id);
   const rosterFull = myRoster.length >= rosterSize(settings.roster);
-  const waiversUntil = league.nextWaiverRunAt ? formatShortDay(league.nextWaiverRunAt, tz) : null;
+  const waiversUntil = waiversUntilDay(holdTimes.get(lawyer.id), league.nextWaiverRunAt, settings);
 
   const totalWeeks = totalSeasonWeeks(settings.schedule);
   const nowWeek = Math.min(Math.max(1, currentWeek(new Date(), leagueClock({ seasonStart: league.seasonStart, settings }))), totalWeeks);
@@ -142,7 +143,7 @@ export default async function LawyerPage({ params }: PageProps<"/leagues/[league
 
         <MoveProvider
           leagueId={leagueId}
-          dropOptions={myRoster.map((r) => ({ id: r.id, name: r.name, position: r.position }))}
+          dropOptions={toDropOptions(myRoster, myLineup?.starters ?? [])}
           rosterFull={rosterFull}
         >
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

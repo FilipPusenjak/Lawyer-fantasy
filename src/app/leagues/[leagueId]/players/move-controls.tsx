@@ -10,10 +10,12 @@
 import { createContext, startTransition, useActionState, useContext, useState, type FormEvent, type ReactNode } from "react";
 import { Button, cx, Select } from "@/components/ui";
 import { POSITION_SHORT, type Position } from "@/lib/settings";
+import { WAIVER_MIN_HOLD_HOURS } from "@/lib/waivers";
 import { rosterMoveAction } from "./actions";
 import { ResultToast } from "./result-toast";
 
-export type DropOption = { id: string; name: string; position: Position };
+/** A lawyer on my roster for the drop picker; `isStarter` = in the lineup for the week that can still be edited. */
+export type DropOption = { id: string; name: string; position: Position; isStarter: boolean };
 
 type MoveContextValue = {
   leagueId: string;
@@ -116,7 +118,7 @@ export function AddClaimButton({ lawyerId, lawyerName, mode }: { lawyerId: strin
                 </option>
                 {ctx.dropOptions.map((o) => (
                   <option key={o.id} value={o.id}>
-                    {o.name} ({POSITION_SHORT[o.position]})
+                    {o.name} ({POSITION_SHORT[o.position]}){o.isStarter ? " (starter)" : ""}
                   </option>
                 ))}
               </Select>
@@ -148,7 +150,7 @@ export function DropButton({
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const where = toWaivers
-      ? "They'll go on waivers until the next waiver run."
+      ? `They'll go on waivers for at least ${WAIVER_MIN_HOLD_HOURS} hours, until a waiver run.`
       : "You added them less than a day ago, so they go straight back to free agency.";
     if (!window.confirm(`Drop ${lawyerName}? ${where}`)) return;
     ctx.submit(new FormData(e.currentTarget));

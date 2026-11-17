@@ -8,6 +8,7 @@ import { POSITION_SHORT, type RosterSettings } from "@/lib/settings";
 import { plural } from "@/lib/format";
 import type { ActionResult } from "@/server/action-result";
 import {
+  cancelDraftStartAction,
   commissionerPickAction,
   makePickAction,
   moveTeamAction,
@@ -404,7 +405,12 @@ export function DraftRoom({ leagueId, initial, roster, scheduledLabel, afterDraf
     commishPickFor: commishPicking ? (onClockTeam?.name ?? null) : null,
     canQueue: !!state.myTeamId && state.status !== "complete",
     busy: pending,
-    onDraft: (l) => run(() => makePickAction(leagueId, l.id)),
+    // A pick can't be undone, so ask first. The pick number is the one on the clock at the tap.
+    onDraft: (l) => {
+      const overall = state.onClock?.overall;
+      if (overall === undefined) return;
+      run(() => makePickAction(leagueId, l.id, overall), `Draft ${l.name}?`);
+    },
     onCommishPick: (l) =>
       run(() => commissionerPickAction(leagueId, l.id, state.onClock!.overall), `Draft ${l.name} for ${onClockTeam?.name ?? "this team"}?`),
     onQueueAdd: (l) => run(() => queueAddAction(leagueId, l.id)),
@@ -557,6 +563,18 @@ export function DraftRoom({ leagueId, initial, roster, scheduledLabel, afterDraf
             >
               Undo last pick
             </Button>
+            {state.currentPick === 0 ? (
+              <Button
+                variant="secondary"
+                className="col-span-2"
+                disabled={pending}
+                onClick={() =>
+                  run(() => cancelDraftStartAction(leagueId), "Stop the draft and go back to setup? You can fix members and the order, then start again.")
+                }
+              >
+                Back to setup
+              </Button>
+            ) : null}
           </div>
           {!isMyTurn && onClockTeam ? (
             <div className="mt-3">

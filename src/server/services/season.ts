@@ -9,6 +9,7 @@ import { autoFillLineup } from "@/lib/lineup";
 import { regularSeasonSchedule } from "@/lib/schedule";
 import { parseLeagueSettings, starterSlots } from "@/lib/settings";
 import { editableWeek } from "@/lib/time";
+import { WAIVER_MIN_HOLD_HOURS } from "@/lib/waivers";
 import { leagueClock, saveLineup } from "./lineups";
 import { scheduleNextWaiverRun } from "./league";
 import { getTeamRoster } from "./roster";
@@ -56,7 +57,9 @@ export async function startSeason(db: DbOrTx, leagueId: string, now: Date = new 
       (r) => r.lawyerId,
     ),
   );
-  const holds = pool.filter((l) => !rostered.has(l.id)).map((l) => ({ leagueId, lawyerId: l.id }));
+  // Backdated past the minimum hold (which exists for drops), so the first run releases them.
+  const heldSince = new Date(now.getTime() - WAIVER_MIN_HOLD_HOURS * 60 * 60 * 1000);
+  const holds = pool.filter((l) => !rostered.has(l.id)).map((l) => ({ leagueId, lawyerId: l.id, createdAt: heldSince }));
   if (holds.length) await db.insert(waiverHolds).values(holds).onConflictDoNothing();
 
   await scheduleNextWaiverRun(db, leagueId, settings, now);

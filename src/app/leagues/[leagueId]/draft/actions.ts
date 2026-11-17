@@ -8,6 +8,7 @@ import { ok, runAction, UserError, type ActionResult } from "@/server/action-res
 import { actionLeagueContext, type LeagueContext } from "@/server/league-context";
 import {
   addToQueue,
+  cancelDraftStart,
   commissionerPick,
   makePick,
   moveInQueue,
@@ -47,13 +48,14 @@ function revalidateDraftRoom(leagueId: string): void {
 // Members
 // ---------------------------------------------------------------------------
 
-/** Draft a lawyer for my team (must be my turn). */
-export async function makePickAction(leagueIdRaw: string, lawyerIdRaw: string): Promise<ActionResult> {
+/** Draft a lawyer for my team (must be my turn). `expectedOverall` is the pick I saw on the clock. */
+export async function makePickAction(leagueIdRaw: string, lawyerIdRaw: string, expectedOverallRaw: number): Promise<ActionResult> {
   return runAction(async () => {
     const leagueId = parse(id, leagueIdRaw);
     const lawyerId = parse(id, lawyerIdRaw);
+    const expected = parse(overall, expectedOverallRaw);
     const ctx = await actionLeagueContext(leagueId);
-    const res = await makePick(db, leagueId, myTeamId(ctx), lawyerId, ctx.user.id, false);
+    const res = await makePick(db, leagueId, myTeamId(ctx), lawyerId, ctx.user.id, false, new Date(), expected);
     revalidateLeague(leagueId);
     return ok(res.completed ? `You drafted ${res.lawyerName}. That's the last pick, so the draft is done!` : `You drafted ${res.lawyerName}.`);
   });
@@ -104,6 +106,21 @@ export async function startDraftAction(leagueIdRaw: string): Promise<ActionResul
     await startDraft(db, leagueId);
     revalidateLeague(leagueId);
     return ok("The draft is live. Good luck!");
+  });
+}
+
+/** Undo "Start draft" while no pick has been made (back to setup). */
+export async function cancelDraftStartAction(leagueIdRaw: string): Promise<ActionResult> {
+  return runAction(async () => {
+    const leagueId = parse(id, leagueIdRaw);
+    await actionLeagueContext(leagueId, { commissioner: true });
+    const { checkPlayoffTeams } = await cancelDraftStart(db, leagueId);
+    revalidateLeague(leagueId);
+    return ok(
+      checkPlayoffTeams
+        ? "The draft is back in setup. If you add teams, check Playoff teams in league settings."
+        : "The draft is back in setup. Start it again when you're ready.",
+    );
   });
 }
 

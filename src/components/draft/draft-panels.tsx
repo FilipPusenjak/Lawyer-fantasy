@@ -129,50 +129,63 @@ export function LawyersPanel({
         <ul className="mt-1">
           {shown.map((l) => {
             const isQueued = queued.has(l.id);
+            // With a Draft/Pick button the actions get their own line on phones, so the name has room.
+            const picking = actions.canDraft || !!actions.commishPickFor;
             return (
-              <li key={l.id} className="flex min-h-14 items-center gap-2 border-b border-line py-2 last:border-b-0">
-                <RankLabel rank={l.rank} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold leading-tight">{l.name}</p>
-                  <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
-                    <PositionBadge position={l.position} />
-                    <span className="truncate">{l.organization ?? (l.kind === "firm" ? "Law firm" : "")}</span>
-                  </p>
+              <li key={l.id} className="flex min-h-14 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line py-2 last:border-b-0">
+                <div className={cx("flex min-w-0 flex-1 items-center gap-2", picking && "basis-full sm:basis-0")}>
+                  <RankLabel rank={l.rank} />
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-2 break-words font-semibold leading-tight">{l.name}</p>
+                    <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
+                      <PositionBadge position={l.position} />
+                      <span className="truncate">{l.organization ?? (l.kind === "firm" ? "Law firm" : "")}</span>
+                    </p>
+                  </div>
+                  <span className="w-12 shrink-0 text-right font-display text-sm tabular-nums" title="Projected points this season">
+                    {projections[l.id] ? Math.round(projections[l.id].restOfSeason) : "–"}
+                  </span>
                 </div>
-                <span className="w-12 shrink-0 text-right font-display text-sm tabular-nums" title="Projected points this season">
-                  {projections[l.id] ? Math.round(projections[l.id].restOfSeason) : "–"}
-                </span>
-                {actions.canDraft ? (
-                  <Button className="shrink-0 px-3" disabled={actions.busy} onClick={() => actions.onDraft(l)}>
-                    Draft
-                  </Button>
-                ) : actions.commishPickFor ? (
-                  <Button className="shrink-0 px-3" disabled={actions.busy} onClick={() => actions.onCommishPick(l)}>
-                    Pick
-                  </Button>
-                ) : null}
-                {actions.canQueue ? (
-                  isQueued ? (
-                    <Button
-                      variant="ghost"
-                      className="shrink-0 px-2"
-                      disabled={actions.busy}
-                      onClick={() => actions.onQueueRemove(l)}
-                      aria-label={`Remove ${l.name} from queue`}
-                    >
-                      Queued
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="secondary"
-                      className="shrink-0 px-2"
-                      disabled={actions.busy}
-                      onClick={() => actions.onQueueAdd(l)}
-                      aria-label={`Add ${l.name} to queue`}
-                    >
-                      +Queue
-                    </Button>
-                  )
+                {picking || actions.canQueue ? (
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                    {actions.canDraft ? (
+                      <Button className="shrink-0 px-3" disabled={actions.busy} onClick={() => actions.onDraft(l)} aria-label={`Draft ${l.name}`}>
+                        Draft
+                      </Button>
+                    ) : actions.commishPickFor ? (
+                      <Button
+                        className="shrink-0 px-3"
+                        disabled={actions.busy}
+                        onClick={() => actions.onCommishPick(l)}
+                        aria-label={`Pick ${l.name} for ${actions.commishPickFor}`}
+                      >
+                        Pick
+                      </Button>
+                    ) : null}
+                    {actions.canQueue ? (
+                      isQueued ? (
+                        <Button
+                          variant="ghost"
+                          className="shrink-0 px-2"
+                          disabled={actions.busy}
+                          onClick={() => actions.onQueueRemove(l)}
+                          aria-label={`Remove ${l.name} from queue`}
+                        >
+                          Queued
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          className="shrink-0 px-2"
+                          disabled={actions.busy}
+                          onClick={() => actions.onQueueAdd(l)}
+                          aria-label={`Add ${l.name} to queue`}
+                        >
+                          +Queue
+                        </Button>
+                      )
+                    ) : null}
+                  </div>
                 ) : null}
               </li>
             );
@@ -231,14 +244,14 @@ export function QueuePanel({
             <div className="flex min-h-11 items-center gap-2">
               <span className="w-6 shrink-0 text-sm font-bold tabular-nums text-muted">{i + 1}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold leading-tight">{l.name}</p>
+                <p className="line-clamp-2 break-words font-semibold leading-tight">{l.name}</p>
                 <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted">
                   <PositionBadge position={l.position} />
                   <span className="truncate">{l.rank ? `Draft rank #${l.rank}` : "Unranked"}</span>
                 </p>
               </div>
               {canDraft ? (
-                <Button className="shrink-0 px-3" disabled={busy} onClick={() => onDraft(l)}>
+                <Button className="shrink-0 px-3" disabled={busy} onClick={() => onDraft(l)} aria-label={`Draft ${l.name}`}>
                   Draft
                 </Button>
               ) : null}

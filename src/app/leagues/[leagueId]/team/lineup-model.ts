@@ -66,6 +66,67 @@ export function reconcileStarters(
   return current.map((id) => (id && rosterIds.has(id) ? id : null));
 }
 
+/**
+ * sessionStorage key for the unsaved lineup of one team and week. Scoped to
+ * the team so a draft left on a shared tab (log out, someone else logs in)
+ * never lands in another student's editor.
+ */
+export function lineupDraftKey(leagueId: string, teamId: string, week: number): string {
+  return `lf:lineup-draft:${leagueId}:${teamId}:${week}`;
+}
+
+/** Unsaved edits plus the slots and saved lineup they were made against. */
+export function serializeLineupDraft(slots: SlotType[], saved: (string | null)[], starters: (string | null)[]): string {
+  return JSON.stringify({ v: 1, slots, saved, starters });
+}
+
+function isLineupArray(x: unknown, length: number): x is (string | null)[] {
+  return Array.isArray(x) && x.length === length && x.every((id) => id === null || (typeof id === "string" && id.length > 0));
+}
+
+/**
+ * Starters to restore from a stored draft, or null when there is nothing
+ * usable: bad JSON, different slots, or a draft that no longer differs from
+ * the saved lineup. Edits are merged with the current saved lineup and roster
+ * the same way the open editor does (reconcileStarters), and the result must
+ * still be a legal lineup (no duplicates, every starter fits their slot).
+ */
+export function restoreLineupDraft(
+  raw: string | null,
+  slots: SlotType[],
+  saved: (string | null)[],
+  players: EditorPlayer[],
+): (string | null)[] | null {
+  if (!raw) return null;
+  let draft: unknown;
+  try {
+    draft = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!draft || typeof draft !== "object") return null;
+  const d = draft as { v?: unknown; slots?: unknown; saved?: unknown; starters?: unknown };
+  if (d.v !== 1) return null;
+  if (!Array.isArray(d.slots) || d.slots.length !== slots.length || d.slots.some((s, i) => s !== slots[i])) return null;
+  if (!isLineupArray(d.saved, slots.length) || !isLineupArray(d.starters, slots.length)) return null;
+  if (saved.length !== slots.length) return null;
+
+  const byId = new Map(players.map((p) => [p.id, p]));
+  // None of the draft's starters are on this roster: it isn't this team's draft.
+  const draftIds = d.starters.filter((id): id is string => id !== null);
+  if (draftIds.length > 0 && !draftIds.some((id) => byId.has(id))) return null;
+  const next = reconcileStarters(d.starters, d.saved, saved, new Set(byId.keys()));
+  const seen = new Set<string>();
+  for (let i = 0; i < slots.length; i++) {
+    const id = next[i];
+    if (id === null) continue;
+    const p = byId.get(id);
+    if (!p || seen.has(id) || !slotAccepts(slots[i], p.position)) return null;
+    seen.add(id);
+  }
+  return sameLineup(next, saved) ? null : next;
+}
+
 /** Read ?week= as an integer within [min, max]; null when missing or out of range. */
 export function parseWeekParam(raw: string | string[] | undefined, min: number, max: number): number | null {
   const v = Array.isArray(raw) ? raw[0] : raw;

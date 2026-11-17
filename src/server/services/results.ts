@@ -7,7 +7,7 @@
  *   time.
  * - A matchup is settled (final) once all of its weeks are finalized: its score
  *   is the sum of the teams' weekly snapshots (median games: the median of every
- *   team's total for the same weeks).
+ *   OTHER team's total for the same weeks).
  * - When the whole regular season is settled, the top teams by standings are
  *   seeded into a bracket (top seeds get byes when the field isn't a power of
  *   two). Each time a playoff round is settled, the next round is created, until
@@ -18,9 +18,12 @@
  *
  * Reopening (documented choice): only the most recently finalized week can be
  * reopened. Its snapshots are deleted and the matchups containing it go back to
- * "not final". If finalizing that week had generated a playoff round (round 1
- * from the last regular-season week, or round N+1 from the last week of round
- * N), that generated round is deleted too and the league status steps back.
+ * "not final". The scoring settings it was first finalized with (`week_scoring`)
+ * are kept, so it's re-scored with those, not with today's settings; approvals
+ * and pool links (appearances, firm links) are the current ones.
+ * If finalizing that week had generated a playoff round (round 1 from the last
+ * regular-season week, or round N+1 from the last week of round N), that
+ * generated round is deleted too and the league status steps back.
  * The deleted round can never have finalized weeks of its own (all of its
  * weeks come after the reopened week), so nothing is lost: it's rebuilt, with
  * fresh seeding, when the week is finalized again. We chose this over refusing
@@ -41,11 +44,12 @@ import {
   trades,
   waiverClaims,
   weekFinalizations,
+  weekScoring,
   type League,
   type Matchup,
 } from "@/db/schema";
 import { pickHomePeriod } from "@/app/leagues/new/league-rules";
-import { decideWinner, firstRoundBracket, median, nextRoundPairs, playoffRoundWeeks } from "@/lib/schedule";
+import { decideWinner, firstRoundBracket, leagueMedianFor, nextRoundPairs, playoffRoundWeeks } from "@/lib/schedule";
 import { round2 } from "@/lib/scoring";
 import {
   parseLeagueSettings,
@@ -353,7 +357,8 @@ export function rangeTotals(
 
 /**
  * Final score and winner of a matchup from every team's range totals.
- * Median games (no team B) compare against the median of ALL teams' totals.
+ * Median games (no team B) compare against the median of the OTHER teams'
+ * totals, so the middle-scoring team isn't tied with its own score.
  * Regular-season ties have no winner; playoff ties go to the higher seed.
  */
 export function settleMatchup(
@@ -361,7 +366,7 @@ export function settleMatchup(
   totals: ReadonlyMap<string, number>,
 ): { scoreA: number; scoreB: number; winnerTeamId: string | null } {
   const scoreA = round2(totals.get(m.teamAId) ?? 0);
-  const scoreB = round2(m.teamBId ? (totals.get(m.teamBId) ?? 0) : median([...totals.values()]));
+  const scoreB = round2(m.teamBId ? (totals.get(m.teamBId) ?? 0) : leagueMedianFor(m.teamAId, totals));
   const winnerTeamId = decideWinner({
     teamA: m.teamAId,
     teamB: m.teamBId,
@@ -621,6 +626,9 @@ export async function finalizeWeek(
     });
     if (!check.ok) throw new UserError(check.reason);
 
+    // Remember the scoring this week was FIRST finalized with; a reopened week
+    // keeps it (snapshotWeek reads it back), even if scoring changed since.
+    await tx.insert(weekScoring).values({ leagueId, week, scoring: settings.scoring }).onConflictDoNothing();
     await snapshotWeek(tx, leagueId, week);
     await tx.insert(weekFinalizations).values({ leagueId, week, finalizedBy: userId });
     finalized.add(week);

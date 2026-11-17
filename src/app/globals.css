@@ -73,6 +73,14 @@ body {
   }
 }
 
+/* A fieldset defaults to min-inline-size: min-content, so long text inside it
+   can't truncate and widens the page on phones. */
+@layer base {
+  fieldset {
+    min-inline-size: 0;
+  }
+}
+
 /* ---------- Headings ---------- */
 h1,
 h2,

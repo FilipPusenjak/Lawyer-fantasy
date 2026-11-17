@@ -8,6 +8,7 @@ import { totalSeasonWeeks } from "@/lib/settings";
 import { todayIn, weekOfDate } from "@/lib/time";
 import { canManagePool, getCommissionerContext } from "@/server/league-context";
 import { countPending, eventCredits, finalizedWeeks, getPoolEvent, loadCreditIndex } from "@/server/services/events";
+import { reopenedWeekScoring } from "@/server/services/scores";
 import { listCaseOptions, listLawyerOptions } from "@/server/services/pool";
 import { BackLink } from "../../pool/pool-ui";
 import { setEventStatusAction, updateEventAction } from "../actions";
@@ -24,12 +25,13 @@ export default async function EditEventPage({ params }: PageProps<"/leagues/[lea
   const poolId = ctx.league.poolId;
   const e = await getPoolEvent(db, poolId, eventId);
   if (!e) notFound();
-  const [caseOptions, lawyerOptions, pending, index, finalized] = await Promise.all([
+  const [caseOptions, lawyerOptions, pending, index, finalized, reopened] = await Promise.all([
     listCaseOptions(db, poolId),
     listLawyerOptions(db, poolId),
     countPending(db, poolId),
     loadCreditIndex(db, poolId),
     finalizedWeeks(db, leagueId),
+    reopenedWeekScoring(db, leagueId, ctx.settings.scoring),
   ]);
   const base = `/leagues/${leagueId}/commish/events`;
   const statusAction = setEventStatusAction.bind(null, leagueId, eventId);
@@ -43,7 +45,7 @@ export default async function EditEventPage({ params }: PageProps<"/leagues/[lea
       <Card className="space-y-3">
         <EventFacts
           e={e}
-          credits={eventCredits(e, index, ctx.settings.scoring)}
+          credits={eventCredits(e, index, reopened.get(weekOfDate(e.occurredOn, ctx.league.seasonStart)) ?? ctx.settings.scoring)}
           week={weekOfDate(e.occurredOn, ctx.league.seasonStart)}
           totalWeeks={totalSeasonWeeks(ctx.settings.schedule)}
           finalized={finalized}

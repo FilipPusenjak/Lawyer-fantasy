@@ -216,10 +216,14 @@ export function overallFor(round: number, draftPosition: number, teamCount: numb
  * was watching, every pick whose turn ran out is auto-picked on the next
  * poll). A team that lands on the clock with almost no time left gets at
  * least MIN_FRESH_CLOCK_SECONDS.
+ *
+ * `graceMs` is the buzzer grace: a pick counts as overdue only once its
+ * deadline is more than `graceMs` old, so the same cut-off decides whether the
+ * catch-up continues. The fresh minimum clock still runs from the real `nowMs`.
  */
-export function nextAutoPickDeadline(expiredDeadlineMs: number, nowMs: number, secondsPerPick: number): number {
+export function nextAutoPickDeadline(expiredDeadlineMs: number, nowMs: number, secondsPerPick: number, graceMs = 0): number {
   const chained = expiredDeadlineMs + secondsPerPick * 1000;
-  if (chained <= nowMs) return chained; // also overdue: keep catching up
+  if (chained <= nowMs - graceMs) return chained; // also overdue: keep catching up
   return Math.max(chained, nowMs + Math.min(secondsPerPick, MIN_FRESH_CLOCK_SECONDS) * 1000);
 }
 

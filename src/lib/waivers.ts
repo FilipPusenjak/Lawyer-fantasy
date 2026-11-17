@@ -9,6 +9,45 @@
  * A claim is valid if the added lawyer is unrostered, the drop lawyer (if any)
  * is still on the claiming team, and the team's roster stays within maxRoster.
  */
+import { nextWeeklyTime } from "./time";
+
+// ---------------------------------------------------------------------------
+// Minimum time on waivers
+// ---------------------------------------------------------------------------
+
+/**
+ * A lawyer stays on waivers at least this long, so a drop just before the run
+ * still gets a full claim window (and can't be handed to a friend right after).
+ */
+export const WAIVER_MIN_HOLD_HOURS = 24;
+const WAIVER_MIN_HOLD_MS = WAIVER_MIN_HOLD_HOURS * 60 * 60 * 1000;
+
+/** Can a run at `runAt` release a lawyer who went on waivers at `heldSince`? */
+export function holdReleasable(heldSince: Date, runAt: Date): boolean {
+  return runAt.getTime() - heldSince.getTime() >= WAIVER_MIN_HOLD_MS;
+}
+
+/**
+ * When a lawyer on waivers since `heldSince` clears waivers (claims on them are
+ * decided then): the first scheduled run, starting at `nextRunAt`, that is at
+ * least WAIVER_MIN_HOLD_HOURS after `heldSince`.
+ */
+export function waiverClearTime(
+  heldSince: Date,
+  nextRunAt: Date,
+  schedule: { processDay: number; processTime: string; timeZone: string },
+): Date {
+  let t = nextRunAt;
+  // Runs are weekly and the hold is a day, so this loops at most a couple of times.
+  for (let i = 0; i < 60 && !holdReleasable(heldSince, t); i++) {
+    t = nextWeeklyTime(t, schedule.processDay, schedule.processTime, schedule.timeZone);
+  }
+  return t;
+}
+
+// ---------------------------------------------------------------------------
+// Processing
+// ---------------------------------------------------------------------------
 
 export type ClaimInput = {
   id: string;

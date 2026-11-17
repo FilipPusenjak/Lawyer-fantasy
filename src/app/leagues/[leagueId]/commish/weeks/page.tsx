@@ -22,6 +22,7 @@ import {
   weekRangeLabel,
   type WeekStatusRow,
 } from "@/server/services/results";
+import { hasWeekScoring } from "@/server/services/scores";
 import { getLeagueMatchups } from "@/server/services/standings";
 import { LEAGUE_STATUS_LABELS, leagueStatusTone } from "@/app/leagues/new/league-rules";
 import { WeekStateBadge } from "../../matchups/matchup-view";
@@ -76,6 +77,12 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
   const finalCount = rows.filter((r) => r.state === "finalized").length;
   const generatedAfterLatest = latestFinal ? playoff.filter((m) => m.weekStart > latestFinal.week) : [];
   const pendingTotal = [...pending.values()].reduce((a, b) => a + b, 0);
+  // Weeks finalized before scoring was stored per week re-score with today's settings.
+  const scoringNote = latestFinal
+    ? (await hasWeekScoring(db, leagueId, latestFinal.week))
+      ? "It keeps the scoring it was finalized with."
+      : "It uses the current scoring."
+    : "";
 
   return (
     <Page className="space-y-4">
@@ -122,7 +129,7 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
             <>
               <p className="text-sm">
                 Week {latestFinal.week} is the latest final week. Reopen it if a late approval or a fix should count. Its scores
-                can change until you finalize it again.
+                can change until you finalize it again. {scoringNote}
               </p>
               {generatedAfterLatest.length > 0 ? (
                 <Notice tone="warn">
@@ -137,7 +144,7 @@ export default async function CommishWeeksPage({ params }: PageProps<"/leagues/[
                 variant="secondary"
                 className="w-full"
                 pendingText="Reopening…"
-                confirm={`Reopen week ${latestFinal.week}? Its scores can change until you finalize it again.`}
+                confirm={`Reopen week ${latestFinal.week}? Its scores can change until you finalize it again. ${scoringNote}`}
               >
                 Reopen week {latestFinal.week}
               </SubmitButton>

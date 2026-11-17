@@ -5,11 +5,15 @@ import { db } from "@/db";
 import { leagues } from "@/db/schema";
 import { Badge, Card, CardTitle, cx, EmptyState, LinkButton, ListRow, Notice, Page, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/time";
+import { WAIVER_MIN_HOLD_HOURS } from "@/lib/waivers";
 import { getLeagueContext } from "@/server/league-context";
 import { loadLeagueTeams, loadPendingClaims, loadProcessedClaims } from "@/server/services/players";
+import { loadWaiverHoldTimes } from "@/server/services/roster";
 import { movesClosedReason, movesOpen } from "@/server/services/transactions-moves";
 import { waiverOrder } from "@/server/services/waivers-processing";
+import { waiversClearAt } from "../players/move-helpers";
 import { LawyerLink, PositionBadge } from "../players/player-bits";
+import { formatShortDay } from "../players/player-filters";
 import { ResultForm, ResultSubmit, ResultToastProvider } from "../players/result-toast";
 import { claimOpAction } from "./actions";
 
@@ -29,6 +33,13 @@ export default async function WaiversPage({ params }: PageProps<"/leagues/[leagu
     team ? loadPendingClaims(db, leagueId, team.id) : Promise.resolve([]),
     team ? loadProcessedClaims(db, leagueId, team.id) : Promise.resolve([]),
   ]);
+  // Claims on lawyers dropped too recently wait for a later run.
+  const holdTimes = pending.length > 0 && fresh?.next ? await loadWaiverHoldTimes(db, leagueId) : new Map<string, Date>();
+  const decidedLater = new Map<string, string>();
+  for (const c of pending) {
+    const at = waiversClearAt(holdTimes.get(c.addLawyerId), fresh?.next ?? null, settings);
+    if (at && fresh?.next && at.getTime() > fresh.next.getTime()) decidedLater.set(c.id, formatShortDay(at, tz));
+  }
   const order = waiverOrder(teamList);
   const teamsById = new Map(teamList.map((t) => [t.id, t]));
   const myPriority = team ? order.indexOf(team.id) + 1 : 0;
@@ -76,7 +87,8 @@ export default async function WaiversPage({ params }: PageProps<"/leagues/[leagu
               </div>
             </div>
             <p className="mt-3 text-sm text-muted">
-              Dropped lawyers sit on waivers until the next run. Claims are decided in priority order; win one and you move to the back of
+              Dropped lawyers stay on waivers for at least {WAIVER_MIN_HOLD_HOURS} hours, until the first run after that. Claims are
+              decided in priority order; win one and you move to the back of
               the line. Anyone left unclaimed becomes a free agent.
             </p>
           </Card>
@@ -106,7 +118,10 @@ export default async function WaiversPage({ params }: PageProps<"/leagues/[leagu
                             <PositionBadge position={c.addPosition} />
                             <LawyerLink leagueId={leagueId} id={c.addLawyerId} name={c.addName} className="truncate" stretch />
                           </p>
-                          <p className="mt-0.5 truncate text-xs text-muted">{c.dropName ? `Drops ${c.dropName}` : "No drop"}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted">
+                            {c.dropName ? `Drops ${c.dropName}` : "No drop"}
+                            {decidedLater.has(c.id) ? ` · Decided ${decidedLater.get(c.id)}` : ""}
+                          </p>
                         </div>
                       </div>
                       <ResultForm action={claimOpAction} className="relative z-10 mt-2 flex flex-wrap items-center gap-2 pl-9">

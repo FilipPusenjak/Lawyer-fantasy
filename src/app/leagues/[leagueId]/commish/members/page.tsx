@@ -8,7 +8,7 @@ import { listLeagueMembers, loadAdminLeague, TEAM_NAME_MAX, TEAM_NAME_MIN, type 
 import { PASSWORD_MIN } from "@/app/account/rules";
 import { inviteUrl } from "../../more/invite-url";
 import { ShareInvite } from "../../more/share-invite";
-import { regenerateCodeAction, removeMemberAction, renameTeamAction, setRoleAction, setTempPasswordAction } from "./actions";
+import { reassignTeamAction, regenerateCodeAction, removeMemberAction, renameTeamAction, setRoleAction, setTempPasswordAction } from "./actions";
 
 export const metadata: Metadata = { title: "Members" };
 
@@ -21,6 +21,7 @@ export default async function MembersPage({ params }: PageProps<"/leagues/[leagu
     inviteUrl(ctx.league.inviteCode),
   ]);
   const canRemove = !admin.locks.removeMembers;
+  const canHandOff = ctx.league.status !== "complete";
   const commissioners = members.filter((m) => m.role === "commissioner").length;
 
   return (
@@ -56,6 +57,7 @@ export default async function MembersPage({ params }: PageProps<"/leagues/[leagu
         <p className="mb-2 text-sm text-muted">
           Co-commissioners can approve scoring events and change settings.
           {canRemove ? " Members can be removed until the draft starts." : " Members can't be removed after the draft starts."}
+          {canHandOff ? " You can give a student's team to someone new." : null}
         </p>
         <div>
           {members.map((m) => (
@@ -65,6 +67,7 @@ export default async function MembersPage({ params }: PageProps<"/leagues/[leagu
               member={m}
               isMe={m.userId === ctx.user.id}
               canRemove={canRemove}
+              canHandOff={canHandOff}
               isSiteAdmin={ctx.user.isAdmin}
             />
           ))}
@@ -79,12 +82,14 @@ function MemberItem({
   member: m,
   isMe,
   canRemove,
+  canHandOff,
   isSiteAdmin,
 }: {
   leagueId: string;
   member: MemberRow;
   isMe: boolean;
   canRemove: boolean;
+  canHandOff: boolean;
   isSiteAdmin: boolean;
 }) {
   return (
@@ -167,6 +172,41 @@ function MemberItem({
               Remove from league
             </SubmitButton>
           </ActionForm>
+        ) : null}
+
+        {canHandOff && m.teamId && !m.isCreator ? (
+          m.role === "commissioner" ? (
+            <p className="text-sm text-muted">To give this team to someone else, make {m.displayName} a regular member first.</p>
+          ) : (
+            <ActionForm action={reassignTeamAction.bind(null, leagueId)} resetOnSuccess>
+              <input type="hidden" name="teamId" value={m.teamId} />
+              <input type="hidden" name="previousOwnerId" value={m.userId} />
+              <Field
+                label="Give this team to another student"
+                hint={`They need an account and can't already be in this league. ${m.displayName} will leave the league. The team keeps its players and record.`}
+              >
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    name="username"
+                    placeholder="Their username"
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    required
+                    className="min-w-0 flex-1"
+                  />
+                  <SubmitButton
+                    variant="secondary"
+                    className="shrink-0"
+                    confirm={`Give "${m.teamName ?? ""}" to this student? ${m.displayName} will leave the league.`}
+                  >
+                    Give
+                  </SubmitButton>
+                </div>
+              </Field>
+            </ActionForm>
+          )
         ) : null}
 
         {isSiteAdmin && !isMe ? (

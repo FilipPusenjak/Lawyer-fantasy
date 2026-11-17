@@ -7,16 +7,17 @@ import { plural } from "@/lib/format";
 import { POSITION_SHORT, POSITIONS, rosterSize } from "@/lib/settings";
 import { getLeagueContext } from "@/server/league-context";
 import { loadAvailability, loadPendingClaimLawyerIds } from "@/server/services/players";
-import { getTeamRoster } from "@/server/services/roster";
+import { editableWeekStarters } from "@/server/services/lineups";
+import { getTeamRoster, loadWaiverHoldTimes } from "@/server/services/roster";
 import { getScoreboard } from "@/server/services/scores";
 import { getLeagueProjectionsCached } from "@/server/services/projections";
 import { fmtProjection, PROJECTION_DISCLAIMER } from "@/lib/projections";
 import { dropGoesToWaivers, movesClosedReason, movesOpen } from "@/server/services/transactions-moves";
 import { AddClaimButton, DropButton, MoveProvider } from "./move-controls";
+import { toDropOptions, waiversUntilDay } from "./move-helpers";
 import { AvailabilityBadge, LawyerLink, PositionBadge } from "./player-bits";
 import {
   filterPlayers,
-  formatShortDay,
   PAGE_STEP,
   parsePlayerFilters,
   playersHref,
@@ -58,14 +59,17 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
   const ctx = await getLeagueContext(leagueId);
   const { league, settings, team } = ctx;
   const base = `/leagues/${leagueId}/players`;
-  const tz = settings.schedule.timezone;
 
-  const [sb, availability, myRoster, myClaims, proj] = await Promise.all([
+  const now = new Date();
+  const [sb, availability, myRoster, myClaims, proj, myLineup, holdTimes] = await Promise.all([
     getScoreboard(leagueId),
     loadAvailability(db, leagueId),
     team ? getTeamRoster(db, team.id) : Promise.resolve([]),
     team ? loadPendingClaimLawyerIds(db, team.id) : Promise.resolve(new Map<string, number>()),
     getLeagueProjectionsCached(leagueId),
+    team && movesOpen(league.status) ? editableWeekStarters(db, { seasonStart: league.seasonStart, settings }, team.id, now) : null,
+    // Only needed for the "Waivers · <day>" badges, which need a scheduled run.
+    league.nextWaiverRunAt ? loadWaiverHoldTimes(db, leagueId) : new Map<string, Date>(),
   ]);
   const projLabel = proj.weeks.phase === "complete" ? "proj" : `proj wk${proj.weeks.targetWeek}`;
 
@@ -73,8 +77,6 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
   const closedReason = movesClosedReason(league.status);
   const maxRoster = rosterSize(settings.roster);
   const rosterFull = myRoster.length >= maxRoster;
-  const waiversUntil = league.nextWaiverRunAt ? formatShortDay(league.nextWaiverRunAt, tz) : null;
-  const now = new Date();
   const mySpots = new Map(myRoster.map((r) => [r.id, r]));
 
   const items = [...sb.lawyers.values()].map((l) => {
@@ -102,7 +104,7 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
     // only search match).
     <MoveProvider
       leagueId={leagueId}
-      dropOptions={myRoster.map((r) => ({ id: r.id, name: r.name, position: r.position }))}
+      dropOptions={toDropOptions(myRoster, myLineup?.starters ?? [])}
       rosterFull={rosterFull}
     >
       <Page className="space-y-3">
@@ -206,7 +208,11 @@ export default async function PlayersPage({ params, searchParams }: PageProps<"/
                         <span className="truncate">{p.organization ?? (p.kind === "firm" ? "Law firm" : "")}</span>
                       </p>
                       <p className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <AvailabilityBadge availability={a} myTeamId={team?.id ?? null} waiversUntil={waiversUntil} />
+                        <AvailabilityBadge
+                          availability={a}
+                          myTeamId={team?.id ?? null}
+                          waiversUntil={a.kind === "waivers" ? waiversUntilDay(holdTimes.get(p.id), league.nextWaiverRunAt, settings) : null}
+                        />
                         {claimOrder !== undefined ? <Badge tone="accent">Your claim #{claimOrder}</Badge> : null}
                       </p>
                     </div>

@@ -6,7 +6,7 @@
 import { and, eq, gte, inArray } from "drizzle-orm";
 import type { DbOrTx } from "@/db";
 import { lineups, teams } from "@/db/schema";
-import type { LeagueSettings } from "@/lib/settings";
+import type { LeagueSettings, SlotType } from "@/lib/settings";
 import { starterSlots } from "@/lib/settings";
 import { editableWeek } from "@/lib/time";
 
@@ -63,9 +63,22 @@ export function leagueClock(league: LeagueClockInfo) {
   };
 }
 
+/** A team's starters for the week that can still be edited (the earliest unlocked week). */
+export async function editableWeekStarters(
+  db: DbOrTx,
+  league: LeagueClockInfo,
+  teamId: string,
+  now: Date = new Date(),
+): Promise<{ week: number; starters: (string | null)[] }> {
+  const week = editableWeek(now, leagueClock(league));
+  return { week, starters: effectiveStarters(await loadTeamLineups(db, teamId), week, league.settings) };
+}
+
 /**
  * Remove a lawyer from a team's lineups for every week that is not yet locked
  * (used when the lawyer is dropped or traded away). Locked weeks keep them.
+ * Returns the slot they left empty in the editable week, or null if they
+ * weren't starting that week.
  */
 export async function removeLawyerFromUpcomingLineups(
   db: DbOrTx,
@@ -73,11 +86,12 @@ export async function removeLawyerFromUpcomingLineups(
   teamId: string,
   lawyerId: string,
   now: Date = new Date(),
-): Promise<void> {
+): Promise<SlotType | null> {
   const week = editableWeek(now, leagueClock(league));
   const rows = await loadTeamLineups(db, teamId);
   const current = effectiveStarters(rows, week, league.settings);
-  if (current.includes(lawyerId)) {
+  const slotIndex = current.indexOf(lawyerId);
+  if (slotIndex >= 0) {
     await saveLineup(
       db,
       teamId,
@@ -97,6 +111,7 @@ export async function removeLawyerFromUpcomingLineups(
         .where(eq(lineups.id, f.id));
     }
   }
+  return slotIndex >= 0 ? (starterSlots(league.settings.roster)[slotIndex] ?? null) : null;
 }
 
 export async function deleteLineupsForTeams(db: DbOrTx, teamIds: string[]): Promise<void> {

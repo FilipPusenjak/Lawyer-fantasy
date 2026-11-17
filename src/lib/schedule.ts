@@ -9,7 +9,8 @@ export type PeriodPairings = { period: number; weekStart: number; weekEnd: numbe
 
 /**
  * Circle-method round robin. With an odd number of teams, the team paired with
- * the phantom slot plays the league median that period (teamB = null).
+ * the phantom slot plays the league median that period (teamB = null): the
+ * median of the other teams' totals (see `leagueMedianFor`).
  * Cycles repeat (with home/away flipped) if there are more periods than rounds.
  */
 export function roundRobin(teamIds: string[], periods: number): Pairing[][] {
@@ -143,4 +144,15 @@ export function median(values: number[]): number {
   const s = [...values].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+/**
+ * The "league median" a team plays in a median game: the median of every OTHER
+ * team's total. Leaving the team out means the middle-scoring team isn't tied
+ * with its own score. Rounded to 2 decimals like every other score.
+ */
+export function leagueMedianFor(teamId: string, totals: Iterable<readonly [string, number]>): number {
+  const others: number[] = [];
+  for (const [id, v] of totals) if (id !== teamId) others.push(v);
+  return Math.round(median(others) * 100) / 100;
 }

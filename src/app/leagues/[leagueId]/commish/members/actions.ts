@@ -5,8 +5,9 @@ import { db } from "@/db";
 import { isUuid } from "@/lib/format";
 import { ok, runAction, UserError, type ActionResult } from "@/server/action-result";
 import { actionLeagueContext } from "@/server/league-context";
-import { regenerateInviteCode, removeMember, renameTeam, setMemberRole, setTemporaryPassword } from "@/server/services/settings-admin";
+import { reassignTeam, regenerateInviteCode, removeMember, renameTeam, setMemberRole, setTemporaryPassword } from "@/server/services/settings-admin";
 import { firstIssue, passwordSchema } from "@/app/account/rules";
+import { parseTakeoverUsername } from "./rules";
 
 async function commish(leagueId: string) {
   if (!isUuid(leagueId)) throw new UserError("League not found.");
@@ -57,6 +58,19 @@ export async function removeMemberAction(leagueId: string, _prev: unknown, formD
     const { displayName } = await removeMember(db, leagueId, userId);
     refresh(leagueId);
     return ok(`${displayName} and their team were removed.`);
+  });
+}
+
+export async function reassignTeamAction(leagueId: string, _prev: unknown, formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
+    await commish(leagueId);
+    const teamId = idField(formData, "teamId");
+    const previousOwnerId = idField(formData, "previousOwnerId");
+    const username = parseTakeoverUsername(formData.get("username"));
+    if (!username) throw new UserError("Type the new student's username.");
+    const { teamName, newDisplayName, oldDisplayName } = await reassignTeam(db, leagueId, teamId, previousOwnerId, username);
+    refresh(leagueId);
+    return ok(`${newDisplayName} now runs ${teamName}. ${oldDisplayName} is no longer in the league.`);
   });
 }
 

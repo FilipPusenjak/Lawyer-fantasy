@@ -184,14 +184,34 @@ describe("settling matchups", () => {
   it("picks the higher score", () => {
     expect(settleMatchup({ ...base, teamAId: "b", teamBId: "a" }, totals)).toEqual({ scoreA: 15, scoreB: 15.5, winnerTeamId: "a" });
   });
-  it("median games use the median of all teams' totals", () => {
-    // totals 0, 1, 15, 15.5 -> median 8
+  it("median games use the median of the other teams' totals", () => {
+    // a plays the median of b, c, d (15, 1, 0) -> 1
     expect(settleMatchup({ ...base, teamAId: "a", teamBId: null, isMedian: true }, totals)).toEqual({
       scoreA: 15.5,
-      scoreB: 8,
+      scoreB: 1,
       winnerTeamId: "a",
     });
-    expect(settleMatchup({ ...base, teamAId: "c", teamBId: null, isMedian: true }, totals).winnerTeamId).toBeNull();
+    // c plays the median of a, b, d (15.5, 15, 0) -> 15: a loss (no team B to win)
+    expect(settleMatchup({ ...base, teamAId: "c", teamBId: null, isMedian: true }, totals)).toEqual({
+      scoreA: 1,
+      scoreB: 15,
+      winnerTeamId: null,
+    });
+  });
+  it("the middle-scoring team isn't forced into a tie with its own score", () => {
+    const three = new Map([
+      ["a", 55],
+      ["b", 40],
+      ["c", 80],
+    ]);
+    // Old rule: median(55, 40, 80) = 55 = a's own score -> tie. Now a plays median(40, 80) = 60.
+    expect(settleMatchup({ ...base, teamAId: "a", teamBId: null, isMedian: true }, three)).toEqual({
+      scoreA: 55,
+      scoreB: 60,
+      winnerTeamId: null,
+    });
+    const high = new Map([...three, ["a", 61]]);
+    expect(settleMatchup({ ...base, teamAId: "a", teamBId: null, isMedian: true }, high).winnerTeamId).toBe("a");
   });
   it("regular-season ties have no winner; playoff ties go to the higher seed", () => {
     const tied = new Map([

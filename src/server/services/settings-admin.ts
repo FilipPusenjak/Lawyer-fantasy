@@ -1,6 +1,7 @@
 /**
  * Commissioner admin: league settings (one save per section) and members
- * (co-commissioners, team names, removal, invite code, temporary passwords).
+ * (co-commissioners, team names, removal, team hand-offs, invite code,
+ * temporary passwords).
  *
  * Settings writes lock the league's drafts row and league row (same order as
  * the draft service) so they can't race the draft starting. No request/cookie
@@ -26,7 +27,10 @@ import {
 import { dayOfWeek, editableWeek } from "@/lib/time";
 import { UserError } from "@/server/action-result";
 import { hashPassword } from "@/server/auth/password";
+import { teamHandoffProblem } from "@/app/leagues/[leagueId]/commish/members/rules";
 import { generateInviteCode, scheduleNextWaiverRun } from "./league";
+import { logTransaction } from "./roster";
+import { runDueWaivers, waiverRunDue } from "./waivers-processing";
 
 export type LeagueStatus = League["status"];
 export type DraftStatus = "not_started" | "in_progress" | "paused" | "complete";
@@ -242,6 +246,9 @@ export async function saveWaiverSettings(
   now: Date = new Date(),
 ): Promise<{ settings: LeagueSettings; nextRunAt: Date | null }> {
   return withLockedLeague(db, leagueId, async (tx, l) => {
+    // A run that is already due goes first (on the old schedule), so its
+    // pending claims aren't pushed back to the new run time.
+    if (waiverRunDue(l.league, now)) await runDueWaivers(tx, leagueId, now);
     const next = await writeSettings(tx, leagueId, { ...l.settings, waivers });
     const nextRunAt = inSeason(l.league.status) ? await scheduleNextWaiverRun(tx, leagueId, next, now) : null;
     return { settings: next, nextRunAt };
@@ -343,6 +350,89 @@ export async function removeMember(db: DbOrTx, leagueId: string, userId: string)
     await tx.delete(leagueMembers).where(and(eq(leagueMembers.leagueId, leagueId), eq(leagueMembers.userId, userId)));
     return { displayName: m.displayName };
   });
+}
+
+/**
+ * Give a team to another student (any phase except a finished season). The
+ * new account must exist and not be in the league yet. The team keeps its
+ * name, roster, lineups, draft slot, waiver priority, trades and record; the
+ * new owner joins as a member and the old owner leaves the league.
+ */
+export async function reassignTeam(
+  db: DbOrTx,
+  leagueId: string,
+  teamId: string,
+  previousOwnerId: string,
+  username: string,
+): Promise<{ teamName: string; newDisplayName: string; oldDisplayName: string }> {
+  try {
+    return await withLockedLeague(db, leagueId, async (tx, l) => {
+      const [team] = await tx
+        .select({ id: teams.id, ownerId: teams.ownerId, name: teams.name })
+        .from(teams)
+        .where(and(eq(teams.id, teamId), eq(teams.leagueId, leagueId)))
+        .for("update");
+      // Lock the old owner's membership so an unlocked role change can't slip
+      // in between the checks and the delete below.
+      if (team) {
+        await tx
+          .select({ userId: leagueMembers.userId })
+          .from(leagueMembers)
+          .where(and(eq(leagueMembers.leagueId, leagueId), eq(leagueMembers.userId, team.ownerId)))
+          .for("update");
+      }
+      const [current] = team
+        ? await tx
+            .select({ role: leagueMembers.role, isCreator: leagueMembers.isCreator, displayName: users.displayName })
+            .from(users)
+            .leftJoin(leagueMembers, and(eq(leagueMembers.leagueId, leagueId), eq(leagueMembers.userId, users.id)))
+            .where(eq(users.id, team.ownerId))
+        : [];
+      const [newUser] = username
+        ? await tx.select({ id: users.id, displayName: users.displayName }).from(users).where(eq(users.username, username))
+        : [];
+      const [newMember] = newUser
+        ? await tx
+            .select({ userId: leagueMembers.userId })
+            .from(leagueMembers)
+            .where(and(eq(leagueMembers.leagueId, leagueId), eq(leagueMembers.userId, newUser.id)))
+        : [];
+      const [newTeam] = newUser
+        ? await tx
+            .select({ id: teams.id })
+            .from(teams)
+            .where(and(eq(teams.leagueId, leagueId), eq(teams.ownerId, newUser.id)))
+        : [];
+      const problem = teamHandoffProblem({
+        leagueStatus: l.league.status,
+        leagueCreatedBy: l.league.createdBy,
+        team: team ?? null,
+        expectedOwnerId: previousOwnerId,
+        currentOwner: current?.role ? { role: current.role, isCreator: current.isCreator ?? false } : null,
+        newUser: newUser ?? null,
+        newUserIsMember: !!newMember,
+        newUserOwnsTeam: !!newTeam,
+      });
+      if (problem || !team || !newUser) throw new UserError(problem ?? "Something was off with that request. Refresh and try again.");
+
+      await tx.update(teams).set({ ownerId: newUser.id }).where(eq(teams.id, team.id));
+      await tx.insert(leagueMembers).values({ leagueId, userId: newUser.id, role: "member" });
+      await tx.delete(leagueMembers).where(and(eq(leagueMembers.leagueId, leagueId), eq(leagueMembers.userId, team.ownerId)));
+      const oldDisplayName = current?.displayName ?? "The old owner";
+      await logTransaction(tx, {
+        leagueId,
+        teamId: team.id,
+        type: "commissioner",
+        lawyerId: null,
+        description: `${newUser.displayName} took over ${team.name} from ${oldDisplayName}.`,
+      });
+      return { teamName: team.name, newDisplayName: newUser.displayName, oldDisplayName };
+    });
+  } catch (e) {
+    // A same-moment join by that student (setup only) hits the unique keys.
+    if (isUniqueViolation(e)) throw new UserError("That student just joined this league. Refresh and try again.");
+    throw e;
+  }
 }
 
 function isUniqueViolation(e: unknown): boolean {

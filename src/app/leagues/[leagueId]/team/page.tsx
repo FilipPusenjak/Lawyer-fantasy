@@ -112,6 +112,7 @@ export default async function MyTeamPage({ params, searchParams }: PageProps<"/l
           <LineupEditor
             key={week}
             leagueId={leagueId}
+            teamId={team.id}
             week={week}
             roster={settings.roster}
             slots={slots}

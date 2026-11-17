@@ -12,7 +12,7 @@ import type { DbOrTx } from "@/db";
 import { lawyers, leagues, rosterSpots, teams, transactions, waiverClaims, waiverHolds } from "@/db/schema";
 import { parseLeagueSettings } from "@/lib/settings";
 import { nextWeeklyTime } from "@/lib/time";
-import { processWaivers, type ClaimInput } from "@/lib/waivers";
+import { holdReleasable, processWaivers, type ClaimInput } from "@/lib/waivers";
 import { scheduleNextWaiverRun } from "./league";
 import { addLawyerToTeam, maxRosterSize, removeLawyerFromTeam } from "./roster";
 
@@ -76,6 +76,17 @@ export async function runDueWaivers(db: DbOrTx, leagueId: string, now: Date): Pr
   return db.transaction(async (tx) => {
     const settings = parseLeagueSettings(league.settings);
     const nextRunAt = nextWeeklyTime(now, settings.waivers.processDay, settings.waivers.processTime, settings.schedule.timezone);
+    // The scheduled time of the run being processed (runs are lazy, so this can
+    // be hours before `now`). Hold ages are judged against it, so a lawyer clears
+    // on the date the screens showed (waiverClearTime), not earlier. Locking the
+    // row here takes the same lock the claiming UPDATE below would.
+    const [scheduled] = await tx
+      .select({ nextWaiverRunAt: leagues.nextWaiverRunAt })
+      .from(leagues)
+      .where(eq(leagues.id, leagueId))
+      .for("update");
+    const scheduledRunAt = scheduled?.nextWaiverRunAt ?? null;
+    if (!scheduledRunAt || scheduledRunAt.getTime() > now.getTime()) return null;
     // Claim the run atomically. A concurrent run blocks here, then matches no row.
     const [claimed] = await tx
       .update(leagues)
@@ -88,7 +99,7 @@ export async function runDueWaivers(db: DbOrTx, leagueId: string, now: Date): Pr
     const freshSettings = parseLeagueSettings(claimed.settings);
     const leagueInfo = { id: claimed.id, seasonStart: claimed.seasonStart, settings: freshSettings };
 
-    const [teamRows, pending, spots] = await Promise.all([
+    const [teamRows, pending, spots, holds] = await Promise.all([
       tx
         .select({ id: teams.id, waiverPriority: teams.waiverPriority, createdAt: teams.createdAt })
         .from(teams)
@@ -98,17 +109,26 @@ export async function runDueWaivers(db: DbOrTx, leagueId: string, now: Date): Pr
         .from(waiverClaims)
         .where(and(eq(waiverClaims.leagueId, leagueId), eq(waiverClaims.status, "pending"))),
       tx.select({ teamId: rosterSpots.teamId, lawyerId: rosterSpots.lawyerId }).from(rosterSpots).where(eq(rosterSpots.leagueId, leagueId)),
+      tx.select({ lawyerId: waiverHolds.lawyerId, createdAt: waiverHolds.createdAt }).from(waiverHolds).where(eq(waiverHolds.leagueId, leagueId)),
     ]);
 
-    // The waiver period is over: everyone unclaimed becomes a free agent.
-    await tx.delete(waiverHolds).where(eq(waiverHolds.leagueId, leagueId));
+    // The waiver period is over for lawyers who had been on waivers long
+    // enough by the scheduled run time: anyone of them left unclaimed becomes a
+    // free agent. Lawyers dropped too recently stay on waivers until the next
+    // run, and claims on them stay pending for it. (Moves run a due run first,
+    // so no hold is created between the scheduled time and now.)
+    const tooNew = new Set(holds.filter((h) => !holdReleasable(h.createdAt, scheduledRunAt)).map((h) => h.lawyerId));
+    const released = holds.filter((h) => !tooNew.has(h.lawyerId)).map((h) => h.lawyerId);
+    if (released.length) {
+      await tx.delete(waiverHolds).where(and(eq(waiverHolds.leagueId, leagueId), inArray(waiverHolds.lawyerId, released)));
+    }
 
     const rosters = new Map<string, Set<string>>();
     for (const t of teamRows) rosters.set(t.id, new Set());
     for (const s of spots) rosters.get(s.teamId)?.add(s.lawyerId);
     const teamIds = new Set(teamRows.map((t) => t.id));
     const claims: ClaimInput[] = pending
-      .filter((c) => teamIds.has(c.teamId))
+      .filter((c) => teamIds.has(c.teamId) && !tooNew.has(c.addLawyerId))
       .map((c) => ({
         id: c.id,
         teamId: c.teamId,

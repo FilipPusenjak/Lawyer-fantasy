@@ -142,7 +142,8 @@ function LawyerChecklist({
     (a, b) => order(a.position) - order(b.position) || points(b.id) - points(a.id) || a.name.localeCompare(b.name),
   );
   return (
-    <fieldset>
+    // min-w-0: a fieldset defaults to min-content width, which would stop long names from truncating.
+    <fieldset className="min-w-0">
       <legend className="sr-only">{name === "give" ? "Lawyers you give" : "Lawyers you get"}</legend>
       <div className="mb-1 flex justify-end text-xs font-semibold uppercase tracking-wide text-muted">Season pts</div>
       {sorted.map((l) => (

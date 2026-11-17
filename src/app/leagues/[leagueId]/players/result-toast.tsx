@@ -18,10 +18,22 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { buttonClass, Notice } from "@/components/ui";
 import type { ActionResult } from "@/server/action-result";
 
 type AnyResult = ActionResult<unknown>;
+
+/** A follow-up link an action can return in `data.link`; the toast shows it next to the message. */
+export type ResultLink = { href: string; label: string };
+
+function resultLink(result: AnyResult): ResultLink | null {
+  if (!result.ok || !result.data || typeof result.data !== "object") return null;
+  const link = (result.data as { link?: unknown }).link;
+  if (!link || typeof link !== "object") return null;
+  const { href, label } = link as Partial<ResultLink>;
+  return typeof href === "string" && typeof label === "string" ? { href, label } : null;
+}
 
 /** Toast for the latest action result. Hides itself after a while (errors stay longer) and can be dismissed. */
 export function ResultToast({ result }: { result: AnyResult | null }) {
@@ -35,12 +47,23 @@ export function ResultToast({ result }: { result: AnyResult | null }) {
 
   const text = result ? (result.ok ? result.message : result.error) : null;
   if (!result || result === dismissed || !text) return null;
+  const link = resultLink(result);
   return (
     <div className="fixed inset-x-0 bottom-20 z-40 px-4" role="status" aria-live="polite">
       <div className="mx-auto max-w-xl shadow-lg">
         <Notice tone={result.ok ? "success" : "error"}>
           <div className="flex items-center gap-2">
-            <p className="min-w-0 flex-1">{text}</p>
+            <p className="min-w-0 flex-1">
+              {text}
+              {link ? (
+                <>
+                  {" "}
+                  <Link href={link.href} className="inline-flex min-h-11 items-center font-semibold underline">
+                    {link.label}
+                  </Link>
+                </>
+              ) : null}
+            </p>
             <button
               type="button"
               onClick={() => setDismissed(result)}

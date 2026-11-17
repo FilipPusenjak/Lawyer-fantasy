@@ -3,7 +3,10 @@
  *
  * Finalized weeks read from snapshots (week_scores / team_week_scores) so late
  * approvals don't silently change settled results. Open weeks are computed live
- * from approved events and each team's lineup for that week.
+ * from approved events and each team's lineup for that week. A reopened week
+ * (finalized once, then reopened) is computed with the scoring settings it was
+ * first finalized with (`week_scoring`), not today's; pool links (appearances,
+ * firm links) are always the current ones.
  */
 import { and, eq, inArray } from "drizzle-orm";
 import { cache } from "react";
@@ -18,9 +21,10 @@ import {
   teamWeekScores,
   weekFinalizations,
   weekScores,
+  weekScoring,
 } from "@/db/schema";
 import { computeLawyerPoints, round2, type LawyerPoints, type ScoringEventInput } from "@/lib/scoring";
-import { parseLeagueSettings, totalSeasonWeeks, type LeagueSettings } from "@/lib/settings";
+import { parseLeagueSettings, scoringSchema, totalSeasonWeeks, type LeagueSettings, type ScoringSettings } from "@/lib/settings";
 import { weekOfDate } from "@/lib/time";
 import { effectiveStarters, loadLeagueLineups, type LineupRow } from "./lineups";
 
@@ -96,7 +100,7 @@ export async function buildScoreboard(db: DbOrTx, leagueId: string): Promise<Sco
   const settings = parseLeagueSettings(league.settings);
   const totalWeeks = totalSeasonWeeks(settings.schedule);
 
-  const [poolLawyers, events, appearances, finals, wScores, tScores, lineupMap] = await Promise.all([
+  const [poolLawyers, events, appearances, finals, wScores, tScores, lineupMap, storedScoring] = await Promise.all([
     loadPoolLawyers(db, league.poolId),
     loadApprovedEvents(db, league.poolId),
     loadPoolAppearances(db, league.poolId),
@@ -104,18 +108,27 @@ export async function buildScoreboard(db: DbOrTx, leagueId: string): Promise<Sco
     db.select().from(weekScores).where(eq(weekScores.leagueId, leagueId)),
     db.select().from(teamWeekScores).where(eq(teamWeekScores.leagueId, leagueId)),
     loadLeagueLineups(db, leagueId),
+    db.select({ week: weekScoring.week, scoring: weekScoring.scoring }).from(weekScoring).where(eq(weekScoring.leagueId, leagueId)),
   ]);
 
-  const live = computeLawyerPoints({
-    events,
-    appearances,
-    lawyers: poolLawyers,
-    scoring: settings.scoring,
-    weekOf: (d) => weekOfDate(d, league.seasonStart),
-    totalWeeks,
-  });
+  const weekOf = (d: string) => weekOfDate(d, league.seasonStart);
+  const live = computeLawyerPoints({ events, appearances, lawyers: poolLawyers, scoring: settings.scoring, weekOf, totalWeeks });
 
   const finalizedWeeks = new Set(finals.map((f) => f.week));
+
+  // Reopened weeks keep the scoring they were first finalized with.
+  for (const g of weekScoringOverrides(storedScoring, finalizedWeeks, settings.scoring)) {
+    const pts = computeLawyerPoints({
+      events: events.filter((e) => g.weeks.has(weekOf(e.occurredOn))),
+      appearances,
+      lawyers: poolLawyers,
+      scoring: g.scoring,
+      weekOf,
+      totalWeeks,
+    });
+    replaceWeeks(live, g.weeks, pts);
+  }
+
   const snap = new Map<string, number>();
   for (const s of wScores) snap.set(`${s.lawyerId}|${s.week}`, s.points);
   const teamSnap = new Map<string, number>();
@@ -157,6 +170,86 @@ export async function buildScoreboard(db: DbOrTx, leagueId: string): Promise<Sco
     teamWeek,
     teamRange,
   };
+}
+
+/**
+ * Weeks to score with stored settings instead of `current`, grouped by
+ * settings: only weeks without a snapshot whose stored scoring differs from the
+ * current one. Rows that don't parse are ignored (the week uses current settings).
+ */
+export function weekScoringOverrides(
+  rows: { week: number; scoring: unknown }[],
+  finalizedWeeks: ReadonlySet<number>,
+  current: ScoringSettings,
+): { scoring: ScoringSettings; weeks: Set<number> }[] {
+  const currentKey = JSON.stringify(scoringSchema.parse(current));
+  const groups = new Map<string, { scoring: ScoringSettings; weeks: Set<number> }>();
+  for (const r of rows) {
+    if (finalizedWeeks.has(r.week)) continue;
+    const parsed = scoringSchema.safeParse(r.scoring);
+    if (!parsed.success) continue;
+    const key = JSON.stringify(parsed.data);
+    if (key === currentKey) continue;
+    const g = groups.get(key);
+    if (g) g.weeks.add(r.week);
+    else groups.set(key, { scoring: parsed.data, weeks: new Set([r.week]) });
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Replace `weeks` in `base` (points by week, event lines and totals) with the
+ * values from `other`, in place. Lines stay in week order.
+ */
+export function replaceWeeks(base: Map<string, LawyerPoints>, weeks: ReadonlySet<number>, other: ReadonlyMap<string, LawyerPoints>): void {
+  const touched = new Set<string>();
+  for (const [id, lp] of base) {
+    if (![...lp.byWeek.keys()].some((w) => weeks.has(w))) continue;
+    for (const w of weeks) lp.byWeek.delete(w);
+    lp.lines = lp.lines.filter((l) => !weeks.has(l.week));
+    touched.add(id);
+  }
+  for (const [id, o] of other) {
+    let lp = base.get(id);
+    if (!lp) base.set(id, (lp = { byWeek: new Map(), lines: [], total: 0 }));
+    for (const [w, v] of o.byWeek) if (weeks.has(w)) lp.byWeek.set(w, v);
+    lp.lines.push(...o.lines.filter((l) => weeks.has(l.week)));
+    touched.add(id);
+  }
+  for (const id of touched) {
+    const lp = base.get(id)!;
+    lp.lines.sort((a, b) => a.week - b.week); // stable: keeps event order within a week
+    let t = 0;
+    for (const v of lp.byWeek.values()) t += v;
+    lp.total = round2(t);
+  }
+}
+
+/** Whether `week` has stored scoring (it was finalized after `week_scoring` existed). */
+export async function hasWeekScoring(db: DbOrTx, leagueId: string, week: number): Promise<boolean> {
+  const rows = await db
+    .select({ week: weekScoring.week })
+    .from(weekScoring)
+    .where(and(eq(weekScoring.leagueId, leagueId), eq(weekScoring.week, week)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Reopened weeks that score with their stored settings instead of `current`,
+ * the same ones buildScoreboard uses. For point previews (event pages, firm
+ * multiplier labels): `map.get(week) ?? current`.
+ */
+export async function reopenedWeekScoring(db: DbOrTx, leagueId: string, current: ScoringSettings): Promise<Map<number, ScoringSettings>> {
+  const [rows, finals] = await Promise.all([
+    db.select({ week: weekScoring.week, scoring: weekScoring.scoring }).from(weekScoring).where(eq(weekScoring.leagueId, leagueId)),
+    db.select({ week: weekFinalizations.week }).from(weekFinalizations).where(eq(weekFinalizations.leagueId, leagueId)),
+  ]);
+  const out = new Map<number, ScoringSettings>();
+  for (const g of weekScoringOverrides(rows, new Set(finals.map((f) => f.week)), current)) {
+    for (const w of g.weeks) out.set(w, g.scoring);
+  }
+  return out;
 }
 
 /** Request-memoized scoreboard for Server Components. */

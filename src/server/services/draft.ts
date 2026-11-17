@@ -413,12 +413,18 @@ async function makePickLocked(tx: DbOrTx, d: Draft, ctx: DraftCtx, args: PickArg
   return { draft: updated, pick, lawyerName: lawyer.name, teamName: team.name, completed: false };
 }
 
+/** True when the pick on the clock is overdue, allowing the buzzer grace (PICK_GRACE_MS). */
+function isOverdue(x: Pick<Draft, "status" | "pickDeadline">, now: Date): boolean {
+  return x.status === "in_progress" && !!x.pickDeadline && x.pickDeadline.getTime() <= now.getTime() - PICK_GRACE_MS;
+}
+
 /**
- * Auto-pick for every pick whose deadline is at or before `now` (up to
- * MAX_CATCHUP_PICKS per call). Caller holds the draft row lock.
+ * Auto-pick for every pick whose deadline passed more than PICK_GRACE_MS
+ * before `now` (up to MAX_CATCHUP_PICKS per call), so a pick sent right at the
+ * buzzer still counts. Caller holds the draft row lock.
  */
 async function runOverdueLocked(tx: DbOrTx, d: Draft, ctx: DraftCtx, now: Date): Promise<{ draft: Draft; picks: number }> {
-  const overdue = (x: Draft) => x.status === "in_progress" && !!x.pickDeadline && x.pickDeadline.getTime() <= now.getTime();
+  const overdue = (x: Draft) => isOverdue(x, now);
   if (!overdue(d)) return { draft: d, picks: 0 };
 
   const pool = await loadPoolLawyers(tx, ctx.league.poolId);
@@ -467,7 +473,7 @@ async function runOverdueLocked(tx: DbOrTx, d: Draft, ctx: DraftCtx, now: Date):
       isAuto: true,
       now,
       madeAt: expired,
-      nextDeadline: new Date(nextAutoPickDeadline(expired.getTime(), now.getTime(), draft.secondsPerPick)),
+      nextDeadline: new Date(nextAutoPickDeadline(expired.getTime(), now.getTime(), draft.secondsPerPick, PICK_GRACE_MS)),
       lawyer: choice,
     });
     draft = result.draft;
@@ -481,20 +487,23 @@ async function runOverdueLocked(tx: DbOrTx, d: Draft, ctx: DraftCtx, now: Date):
 }
 
 /**
- * Lazily run the pick clock: auto-pick for every pick whose deadline has
- * passed. Cheap when nothing is due; safe under concurrent polling (the row
- * lock serializes callers and each re-checks the deadline). Returns the
- * number of auto-picks made.
+ * Lazily run the pick clock: auto-pick for every pick whose deadline passed
+ * more than PICK_GRACE_MS ago. Cheap when nothing is due; safe under
+ * concurrent polling (the row lock serializes callers and each re-checks the
+ * deadline). Returns the number of auto-picks made.
  */
 export async function advanceClock(db: DbOrTx, leagueId: string, now: Date = new Date()): Promise<number> {
   const peek = await peekDraft(db, leagueId);
-  if (!peek || peek.status !== "in_progress" || !peek.pickDeadline || peek.pickDeadline.getTime() > now.getTime()) return 0;
+  if (!peek || !isOverdue(peek, now)) return 0;
   return withLockedDraft(db, leagueId, async (tx, d, ctx) => (await runOverdueLocked(tx, d, ctx, now)).picks);
 }
 
 /**
  * A team makes the pick on the clock. Overdue picks are auto-made first
  * (with a short grace period so a pick sent right at the buzzer counts).
+ * `expectedOverall` is the pick the student saw on the clock: if the clock
+ * moved on since (an auto-pick, an undo), the pick is refused instead of being
+ * applied to a different pick (e.g. the same team's next pick at a snake turn).
  */
 export async function makePick(
   db: DbOrTx,
@@ -504,9 +513,13 @@ export async function makePick(
   userId: string | null,
   isAuto = false,
   now: Date = new Date(),
+  expectedOverall: number | null = null,
 ): Promise<PickResult> {
   return withLockedDraft(db, leagueId, async (tx, d, ctx) => {
-    const { draft } = await runOverdueLocked(tx, d, ctx, new Date(now.getTime() - PICK_GRACE_MS));
+    const { draft } = await runOverdueLocked(tx, d, ctx, now);
+    if (expectedOverall !== null && draft.status === "in_progress" && draft.currentPick !== expectedOverall) {
+      throw new UserError("The clock moved on. Check the board and pick again.");
+    }
     return makePickLocked(tx, draft, ctx, { teamId, lawyerId, userId, isAuto, now });
   });
 }
@@ -604,6 +617,41 @@ export async function startDraft(db: DbOrTx, leagueId: string, now: Date = new D
         : { status: "drafting" as const };
     await tx.update(leagues).set(leagueUpdate).where(eq(leagues.id, leagueId));
     return started;
+  });
+}
+
+/**
+ * Undo "Start draft" (commissioner) while no pick has been made: the league
+ * goes back to setup so members and the draft order can be fixed. Overdue
+ * picks are made first, so a first pick that already timed out stays.
+ */
+export async function cancelDraftStart(
+  db: DbOrTx,
+  leagueId: string,
+  now: Date = new Date(),
+): Promise<{ draft: Draft; checkPlayoffTeams: boolean }> {
+  return withLockedDraft(db, leagueId, async (tx, d0, ctx) => {
+    const { draft: d } = await runOverdueLocked(tx, d0, ctx, now);
+    if (ctx.league.status !== "drafting" || (d.status !== "in_progress" && d.status !== "paused")) {
+      throw new UserError("The draft isn't running.");
+    }
+    if (d.currentPick !== 0) throw new UserError("A pick was already made, so the draft can't go back to setup.");
+    await tx.delete(draftPicks).where(eq(draftPicks.leagueId, leagueId));
+    await tx.update(leagues).set({ status: "setup" }).where(eq(leagues.id, leagueId));
+    const draft = await updateDraft(tx, leagueId, {
+      status: "not_started",
+      currentPick: 0,
+      pickDeadline: null,
+      pausedRemainingMs: null,
+      startedAt: null,
+      completedAt: null,
+    });
+    // startDraft may have lowered Playoff teams to the team count, and that stays
+    // saved. If more teams can still join, the commissioner should check it.
+    const { schedule, maxTeams } = ctx.league.settings;
+    const teamCount = ctx.teams.length;
+    const checkPlayoffTeams = teamCount < maxTeams && (schedule.playoffTeams === teamCount || schedule.playoffTeams === 0);
+    return { draft, checkPlayoffTeams };
   });
 }
 

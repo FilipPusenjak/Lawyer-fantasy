@@ -5,8 +5,7 @@
 import type { ReactNode } from "react";
 import type { Matchup } from "@/db/schema";
 import { Badge, cx, Points } from "@/components/ui";
-import { median } from "@/lib/schedule";
-import { round2 } from "@/lib/scoring";
+import { leagueMedianFor } from "@/lib/schedule";
 import { formatShortDate, weekEndDate, weekStartDate } from "@/lib/time";
 import { MATCHUP_PHASE_LABELS, WEEK_STATE_LABELS, type MatchupPhase, type WeekState } from "@/server/services/results";
 import type { Scoreboard } from "@/server/services/scores";
@@ -53,7 +52,7 @@ export type MatchupScores = {
 
 /**
  * Stored scores once final; otherwise live totals from the scoreboard (median
- * games compare against the median of every team's total for the same weeks).
+ * games compare against the median of the other teams' totals for the same weeks).
  * Without a scoreboard, unsettled matchups show 0–0.
  */
 export function matchupScores(m: Matchup, sb: Scoreboard | null, allTeamIds: string[]): MatchupScores {
@@ -63,7 +62,10 @@ export function matchupScores(m: Matchup, sb: Scoreboard | null, allTeamIds: str
   const scoreA = sb.teamRange(m.teamAId, m.weekStart, m.weekEnd);
   const scoreB = m.teamBId
     ? sb.teamRange(m.teamBId, m.weekStart, m.weekEnd)
-    : round2(median(allTeamIds.map((id) => sb.teamRange(id, m.weekStart, m.weekEnd))));
+    : leagueMedianFor(
+        m.teamAId,
+        allTeamIds.map((id) => [id, sb.teamRange(id, m.weekStart, m.weekEnd)] as const),
+      );
   return { scoreA, scoreB };
 }
 

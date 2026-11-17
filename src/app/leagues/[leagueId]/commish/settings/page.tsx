@@ -129,7 +129,7 @@ export default async function SettingsPage({ params }: PageProps<"/leagues/[leag
       {/* Scoring */}
       <Section id="scoring" title="Scoring">
         <ActionForm action={saveScoringAction.bind(null, leagueId)}>
-          <Notice>Changes re-score every week that isn&apos;t finalized yet. Finalized weeks keep their scores.</Notice>
+          <Notice>Changes re-score every week that isn&apos;t finalized yet. Finalized weeks keep their scores. The Weeks page says which scoring a reopened week uses.</Notice>
           <ScoringFields initial={settings.scoring} />
           <SubmitButton className="w-full">Save scoring</SubmitButton>
         </ActionForm>

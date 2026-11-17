@@ -4,10 +4,12 @@
  * Lineup editor for the current editable week. Tap a slot to open a picker of
  * roster players who can play it (from the bench or another slot), then save.
  * Unsaved edits survive roster changes made elsewhere on the page (a drop
- * only removes that lawyer from the edited lineup).
+ * only removes that lawyer from the edited lineup). Unsaved edits are also
+ * kept in sessionStorage per league and week, so leaving the page and coming
+ * back (or reloading) brings them back until they are saved or undone.
  */
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, Card, CardTitle, cx, EmptyState, Points } from "@/components/ui";
 import { ActionForm, SubmitButton } from "@/components/ui-client";
 import { autoFillLineup } from "@/lib/lineup";
@@ -15,7 +17,16 @@ import { fmtPoints } from "@/lib/format";
 import { POSITION_SHORT, SLOT_LABELS, type Position, type RosterSettings, type SlotType } from "@/lib/settings";
 import { PositionBadge, SlotChip } from "../players/player-bits";
 import { saveLineupAction } from "./actions";
-import { assignSlot, benchOf, eligibleFor, reconcileStarters, sameLineup } from "./lineup-model";
+import {
+  assignSlot,
+  benchOf,
+  eligibleFor,
+  lineupDraftKey,
+  reconcileStarters,
+  restoreLineupDraft,
+  sameLineup,
+  serializeLineupDraft,
+} from "./lineup-model";
 
 export type EditorRosterPlayer = {
   id: string;
@@ -28,6 +39,7 @@ export type EditorRosterPlayer = {
 
 export function LineupEditor({
   leagueId,
+  teamId,
   week,
   roster,
   slots,
@@ -35,6 +47,7 @@ export function LineupEditor({
   initial,
 }: {
   leagueId: string;
+  teamId: string;
   week: number;
   roster: RosterSettings;
   slots: SlotType[];
@@ -55,6 +68,47 @@ export function LineupEditor({
 
   const byId = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
   const dirty = !sameLineup(starters, initial);
+  const draftKey = lineupDraftKey(leagueId, teamId, week);
+
+  // Bring back unsaved edits from an earlier visit (client only, so it runs
+  // after hydration). Until this has run, don't overwrite the stored draft.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    let raw: string | null = null;
+    try {
+      raw = window.sessionStorage.getItem(draftKey);
+    } catch {
+      // Storage blocked: the editor still works, edits just aren't kept.
+    }
+    const draft = restoreLineupDraft(raw, slots, initial, players);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time read of browser storage after hydration
+    if (draft) setStarters(draft);
+    setRestored(true);
+    // Mount only: later prop changes are merged by reconcileStarters above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the draft while there are unsaved edits; drop it once saved or undone.
+  useEffect(() => {
+    if (!restored) return;
+    try {
+      if (dirty) window.sessionStorage.setItem(draftKey, serializeLineupDraft(slots, initial, starters));
+      else window.sessionStorage.removeItem(draftKey);
+    } catch {
+      // Storage blocked or full: nothing to keep.
+    }
+  }, [restored, dirty, draftKey, slots, initial, starters]);
+
+  // Warn before a reload or tab close drops unsaved edits.
+  useEffect(() => {
+    if (!dirty) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
   const bench = benchOf(starters, players);
   const base = `/leagues/${leagueId}`;
 
@@ -149,8 +203,19 @@ export function LineupEditor({
               );
             })}
           </ul>
-          {dirty ? <p className="text-sm font-semibold text-warn">You have unsaved changes.</p> : null}
-          <div className="flex flex-wrap gap-2">
+          <div
+            className={cx(
+              "flex flex-wrap items-center gap-2",
+              // While there are unsaved edits, keep Save on screen above the bottom nav.
+              dirty &&
+                "sticky bottom-[calc(4rem+env(safe-area-inset-bottom))] z-10 -mx-2 rounded-2xl border border-line bg-surface/95 p-2 backdrop-blur",
+            )}
+          >
+            {dirty ? (
+              <p className="w-full text-sm font-semibold text-warn" role="status">
+                Unsaved changes. Tap Save lineup.
+              </p>
+            ) : null}
             <SubmitButton className="flex-1" pendingText="Saving…" disabled={!dirty}>
               Save lineup
             </SubmitButton>

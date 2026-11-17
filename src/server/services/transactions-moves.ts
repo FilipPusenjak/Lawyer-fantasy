@@ -13,11 +13,13 @@ import { and, asc, eq } from "drizzle-orm";
 import type { DbOrTx } from "@/db";
 import { lawyers, leagues, rosterSpots, teams, transactions, waiverClaims, waiverHolds } from "@/db/schema";
 import { validateLineup } from "@/lib/lineup";
-import { parseLeagueSettings, totalSeasonWeeks, type LeagueSettings } from "@/lib/settings";
+import { parseLeagueSettings, totalSeasonWeeks, type LeagueSettings, type SlotType } from "@/lib/settings";
 import { editableWeek, formatDateTime, isWeekLocked, weekLockTime } from "@/lib/time";
+import { waiverClearTime } from "@/lib/waivers";
 import { UserError } from "@/server/action-result";
 import { leagueClock, saveLineup } from "./lineups";
 import { addLawyerToTeam, getTeamRoster, maxRosterSize, removeLawyerFromTeam } from "./roster";
+import { runDueWaivers, waiverRunDue } from "./waivers-processing";
 
 // ---------------------------------------------------------------------------
 // Pure rules (unit tested)
@@ -47,8 +49,9 @@ export function movesClosedReason(status: LeagueStatus): string | null {
 export const FREE_AGENT_GRACE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Dropped lawyers go on waivers until the next waiver run, except a free-agent
- * pickup dropped within 24 hours, who goes straight back to free agency.
+ * Dropped lawyers go on waivers (for at least WAIVER_MIN_HOLD_HOURS, until a
+ * waiver run), except a free-agent pickup dropped within 24 hours, who goes
+ * straight back to free agency.
  */
 export function dropGoesToWaivers(spot: { acquiredVia: string; acquiredAt: Date }, now: Date): boolean {
   if (spot.acquiredVia !== "free_agent") return true;
@@ -82,8 +85,7 @@ type LockedLeague = {
   nextWaiverRunAt: Date | null;
 };
 
-/** Lock the league row for the rest of the transaction. */
-async function lockLeague(tx: DbOrTx, leagueId: string, opts: { requireMovesOpen: boolean }): Promise<LockedLeague> {
+async function selectLeagueForUpdate(tx: DbOrTx, leagueId: string) {
   const [row] = await tx
     .select({
       id: leagues.id,
@@ -96,7 +98,47 @@ async function lockLeague(tx: DbOrTx, leagueId: string, opts: { requireMovesOpen
     .from(leagues)
     .where(eq(leagues.id, leagueId))
     .for("update");
+  return row;
+}
+
+/** Process a waiver run that is due (no-op otherwise). A failed run blocks the move rather than letting it use pre-run state. */
+async function runDueWaiversFirst(db: DbOrTx, leagueId: string, now: Date): Promise<void> {
+  try {
+    await runDueWaivers(db, leagueId, now);
+  } catch (e) {
+    console.error(`Waiver processing before a move failed for league ${leagueId}`, e);
+    throw new UserError("Waivers are being processed. Try again in a minute.");
+  }
+}
+
+/**
+ * Run a move in a transaction. A due waiver run is processed first, in its own
+ * transaction, so it is kept even if the move is then refused (lockLeague
+ * checks again under the lock for a run that came due in between).
+ */
+async function moveTransaction<T>(db: DbOrTx, leagueId: string, now: Date, fn: (tx: DbOrTx) => Promise<T>): Promise<T> {
+  await runDueWaiversFirst(db, leagueId, now);
+  return db.transaction((tx) => fn(tx));
+}
+
+/**
+ * Lock the league row for the rest of the transaction. If a waiver run is due,
+ * it runs first (in this transaction, under the lock we already hold; the run
+ * claims itself under the same row lock, so it can't run twice), so the move
+ * sees the post-run rosters, waivers and claims instead of stale ones.
+ */
+async function lockLeague(
+  tx: DbOrTx,
+  leagueId: string,
+  opts: { requireMovesOpen: boolean; now: Date; skipWaiverRun?: boolean },
+): Promise<LockedLeague> {
+  let row = await selectLeagueForUpdate(tx, leagueId);
   if (!row) throw new UserError("League not found.");
+  if (!opts.skipWaiverRun && waiverRunDue(row, opts.now)) {
+    await runDueWaiversFirst(tx, leagueId, opts.now);
+    row = await selectLeagueForUpdate(tx, leagueId);
+    if (!row) throw new UserError("League not found.");
+  }
   if (opts.requireMovesOpen) {
     const reason = movesClosedReason(row.status);
     if (reason) throw new UserError(reason);
@@ -113,7 +155,17 @@ async function poolLawyer(tx: DbOrTx, poolId: string, lawyerId: string) {
   return l;
 }
 
-/** Who has the lawyer (if anyone) and whether they're on waivers. */
+/** When a lawyer on waivers since `heldSince` clears (claims on them are decided then). */
+function waiversClearAt(league: LockedLeague, heldSince: Date): Date | null {
+  if (!league.nextWaiverRunAt) return null;
+  return waiverClearTime(heldSince, league.nextWaiverRunAt, {
+    processDay: league.settings.waivers.processDay,
+    processTime: league.settings.waivers.processTime,
+    timeZone: league.settings.schedule.timezone,
+  });
+}
+
+/** Who has the lawyer (if anyone) and since when they're on waivers (null if not). */
 async function availability(tx: DbOrTx, leagueId: string, lawyerId: string) {
   const [spot] = await tx
     .select({ teamId: rosterSpots.teamId, teamName: teams.name })
@@ -121,10 +173,10 @@ async function availability(tx: DbOrTx, leagueId: string, lawyerId: string) {
     .innerJoin(teams, eq(teams.id, rosterSpots.teamId))
     .where(and(eq(rosterSpots.leagueId, leagueId), eq(rosterSpots.lawyerId, lawyerId)));
   const [hold] = await tx
-    .select({ lawyerId: waiverHolds.lawyerId })
+    .select({ createdAt: waiverHolds.createdAt })
     .from(waiverHolds)
     .where(and(eq(waiverHolds.leagueId, leagueId), eq(waiverHolds.lawyerId, lawyerId)));
-  return { owner: spot ?? null, onWaivers: !!hold };
+  return { owner: spot ?? null, onWaivers: !!hold, heldSince: hold?.createdAt ?? null };
 }
 
 async function teamSpot(tx: DbOrTx, leagueId: string, teamId: string, lawyerId: string) {
@@ -149,18 +201,15 @@ export async function clearDropFromPendingClaims(tx: DbOrTx, teamId: string, law
     .where(and(eq(waiverClaims.teamId, teamId), eq(waiverClaims.status, "pending"), eq(waiverClaims.dropLawyerId, lawyerId)));
 }
 
+/** What a drop did: where the lawyer went, and the lineup slot it emptied this week (if any). */
+export type DroppedInfo = { lawyerName: string; toWaivers: boolean; emptiedSlot: SlotType | null };
+
 /** Drop a lawyer inside an open transaction; returns where they went. */
-async function dropInTx(
-  tx: DbOrTx,
-  league: LockedLeague,
-  teamId: string,
-  lawyerId: string,
-  now: Date,
-): Promise<{ lawyerName: string; toWaivers: boolean }> {
+async function dropInTx(tx: DbOrTx, league: LockedLeague, teamId: string, lawyerId: string, now: Date): Promise<DroppedInfo> {
   const spot = await teamSpot(tx, league.id, teamId, lawyerId);
   if (!spot) throw new UserError("That lawyer isn't on your team anymore.");
   const toWaivers = dropGoesToWaivers(spot, now);
-  await removeLawyerFromTeam(tx, {
+  const { emptiedSlot } = await removeLawyerFromTeam(tx, {
     league: { id: league.id, seasonStart: league.seasonStart, settings: league.settings },
     teamId,
     lawyerId,
@@ -168,7 +217,7 @@ async function dropInTx(
     now,
   });
   await clearDropFromPendingClaims(tx, teamId, lawyerId);
-  return { lawyerName: spot.name, toWaivers };
+  return { lawyerName: spot.name, toWaivers, emptiedSlot };
 }
 
 function dropDescription(name: string, toWaivers: boolean): string {
@@ -179,7 +228,7 @@ function dropDescription(name: string, toWaivers: boolean): string {
 // Drops and free-agent adds
 // ---------------------------------------------------------------------------
 
-export type DropResult = { lawyerName: string; toWaivers: boolean; waiversUntil: Date | null };
+export type DropResult = DroppedInfo & { waiversUntil: Date | null };
 
 /** Drop a lawyer from a team and log it. */
 export async function dropLawyer(
@@ -187,8 +236,8 @@ export async function dropLawyer(
   args: { leagueId: string; teamId: string; lawyerId: string; now?: Date },
 ): Promise<DropResult> {
   const now = args.now ?? new Date();
-  return db.transaction(async (tx) => {
-    const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: true });
+  return moveTransaction(db, args.leagueId, now, async (tx) => {
+    const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: true, now });
     const res = await dropInTx(tx, league, args.teamId, args.lawyerId, now);
     await tx.insert(transactions).values({
       leagueId: league.id,
@@ -198,11 +247,11 @@ export async function dropLawyer(
       description: dropDescription(res.lawyerName, res.toWaivers),
       createdAt: now,
     });
-    return { ...res, waiversUntil: res.toWaivers ? league.nextWaiverRunAt : null };
+    return { ...res, waiversUntil: res.toWaivers ? waiversClearAt(league, now) : null };
   });
 }
 
-export type AddResult = { lawyerName: string; dropped: { lawyerName: string; toWaivers: boolean } | null };
+export type AddResult = { lawyerName: string; dropped: DroppedInfo | null };
 
 /**
  * Add a free agent (optionally dropping someone first). Fails if the lawyer is
@@ -214,8 +263,8 @@ export async function addFreeAgent(
 ): Promise<AddResult> {
   const now = args.now ?? new Date();
   if (args.dropLawyerId && args.dropLawyerId === args.lawyerId) throw new UserError("Pick a different lawyer to drop.");
-  return db.transaction(async (tx) => {
-    const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: true });
+  return moveTransaction(db, args.leagueId, now, async (tx) => {
+    const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: true, now });
     const lawyer = await poolLawyer(tx, league.poolId, args.lawyerId);
     const status = await availability(tx, league.id, lawyer.id);
     if (status.owner) {
@@ -265,11 +314,12 @@ export async function addFreeAgent(
 /** Put in a claim for a lawyer on waivers. It's processed at the next waiver run. */
 export async function createWaiverClaim(
   db: DbOrTx,
-  args: { leagueId: string; teamId: string; lawyerId: string; dropLawyerId: string | null },
+  args: { leagueId: string; teamId: string; lawyerId: string; dropLawyerId: string | null; now?: Date },
 ): Promise<{ lawyerName: string; claimOrder: number; runsAt: Date | null }> {
+  const now = args.now ?? new Date();
   if (args.dropLawyerId && args.dropLawyerId === args.lawyerId) throw new UserError("Pick a different lawyer to drop.");
-  return db.transaction(async (tx) => {
-    const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: true });
+  return moveTransaction(db, args.leagueId, now, async (tx) => {
+    const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: true, now });
     const lawyer = await poolLawyer(tx, league.poolId, args.lawyerId);
     const status = await availability(tx, league.id, lawyer.id);
     if (status.owner) {
@@ -277,7 +327,8 @@ export async function createWaiverClaim(
         status.owner.teamId === args.teamId ? `${lawyer.name} is already on your team.` : `${lawyer.name} is already on ${status.owner.teamName}.`,
       );
     }
-    if (!status.onWaivers) throw new UserError(`${lawyer.name} isn't on waivers. You can add them right away.`);
+    if (!status.heldSince) throw new UserError(`${lawyer.name} isn't on waivers. You can add them right away.`);
+    const heldSince = status.heldSince;
 
     const pending = await tx
       .select({ addLawyerId: waiverClaims.addLawyerId, claimOrder: waiverClaims.claimOrder })
@@ -303,7 +354,7 @@ export async function createWaiverClaim(
       dropLawyerId: args.dropLawyerId,
       claimOrder,
     });
-    return { lawyerName: lawyer.name, claimOrder, runsAt: league.nextWaiverRunAt };
+    return { lawyerName: lawyer.name, claimOrder, runsAt: waiversClearAt(league, heldSince) };
   });
 }
 
@@ -326,10 +377,11 @@ async function writeClaimOrder(tx: DbOrTx, ids: string[]): Promise<void> {
 /** Move one of a team's pending claims up or down its list. */
 export async function moveWaiverClaim(
   db: DbOrTx,
-  args: { leagueId: string; teamId: string; claimId: string; direction: "up" | "down" },
+  args: { leagueId: string; teamId: string; claimId: string; direction: "up" | "down"; now?: Date },
 ): Promise<void> {
-  await db.transaction(async (tx) => {
-    await lockLeague(tx, args.leagueId, { requireMovesOpen: false });
+  const now = args.now ?? new Date();
+  await moveTransaction(db, args.leagueId, now, async (tx) => {
+    await lockLeague(tx, args.leagueId, { requireMovesOpen: false, now });
     const ids = await pendingClaimIds(tx, args.leagueId, args.teamId);
     if (!ids.includes(args.claimId)) throw new UserError("That claim was already processed or cancelled.");
     await writeClaimOrder(tx, reorderIds(ids, args.claimId, args.direction));
@@ -337,9 +389,13 @@ export async function moveWaiverClaim(
 }
 
 /** Cancel one of a team's pending claims. */
-export async function cancelWaiverClaim(db: DbOrTx, args: { leagueId: string; teamId: string; claimId: string }): Promise<void> {
-  await db.transaction(async (tx) => {
-    await lockLeague(tx, args.leagueId, { requireMovesOpen: false });
+export async function cancelWaiverClaim(
+  db: DbOrTx,
+  args: { leagueId: string; teamId: string; claimId: string; now?: Date },
+): Promise<void> {
+  const now = args.now ?? new Date();
+  await moveTransaction(db, args.leagueId, now, async (tx) => {
+    await lockLeague(tx, args.leagueId, { requireMovesOpen: false, now });
     const done = await tx
       .update(waiverClaims)
       .set({ status: "cancelled" })
@@ -372,8 +428,11 @@ export async function setTeamLineup(
   const now = args.now ?? new Date();
   // Serialize with drops, adds, waivers and trades (they all lock the league
   // row) so a lawyer who is leaving the roster can't be saved as a starter.
+  // A due waiver run is left to maintenance here: a lineup doesn't depend on
+  // it (a lawyer a run takes away also leaves the lineup), and a failing run
+  // must never block lineup saves before the lock.
   return db.transaction(async (tx) => {
-  const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: false });
+  const league = await lockLeague(tx, args.leagueId, { requireMovesOpen: false, now, skipWaiverRun: true });
   if (league.status === "setup" || league.status === "drafting") throw new UserError("Lineups open after the draft.");
   if (league.status === "complete") throw new UserError("The season is over, so lineups are locked.");
   const settings = league.settings;

@@ -7,6 +7,7 @@ import { EVENT_LABELS, EVENT_TYPES, totalSeasonWeeks, type EventType } from "@/l
 import { weekOfDate } from "@/lib/time";
 import { canManagePool, getCommissionerContext } from "@/server/league-context";
 import { countPending, eventCredits, finalizedWeeks, listEvents, loadCreditIndex, type EventStatus } from "@/server/services/events";
+import { reopenedWeekScoring } from "@/server/services/scores";
 import { BackLink } from "../../pool/pool-ui";
 import { setEventStatusAction } from "../actions";
 import { EventFacts, EventsTabs } from "../event-ui";
@@ -33,7 +34,7 @@ export default async function EventHistoryPage({ params, searchParams }: PagePro
   const page = Math.max(1, Math.min(1000, Math.floor(Number(one(sp.page))) || 1));
   const added = Number(one(sp.added)) || 0;
 
-  const [rows, pending, index, finalized] = await Promise.all([
+  const [rows, pending, index, finalized, reopened] = await Promise.all([
     listEvents(db, poolId, {
       statuses: status ? [status] : ["approved", "rejected"],
       type,
@@ -44,7 +45,10 @@ export default async function EventHistoryPage({ params, searchParams }: PagePro
     countPending(db, poolId),
     loadCreditIndex(db, poolId),
     finalizedWeeks(db, leagueId),
+    reopenedWeekScoring(db, leagueId, ctx.settings.scoring),
   ]);
+  // A reopened week keeps the scoring it was finalized with, so previews use it too.
+  const scoringFor = (occurredOn: string) => reopened.get(weekOfDate(occurredOn, ctx.league.seasonStart)) ?? ctx.settings.scoring;
   const hasMore = rows.length > PAGE_SIZE;
   const events = rows.slice(0, PAGE_SIZE);
   const totalWeeks = totalSeasonWeeks(ctx.settings.schedule);
@@ -100,7 +104,7 @@ export default async function EventHistoryPage({ params, searchParams }: PagePro
           <Card key={e.id} className="space-y-3">
             <EventFacts
               e={e}
-              credits={eventCredits(e, index, ctx.settings.scoring)}
+              credits={eventCredits(e, index, scoringFor(e.occurredOn))}
               week={weekOfDate(e.occurredOn, ctx.league.seasonStart)}
               totalWeeks={totalWeeks}
               finalized={finalized}

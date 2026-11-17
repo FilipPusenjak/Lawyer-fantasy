@@ -51,22 +51,41 @@ CourtListener; Phase 3 adds AI-suggested events (always commissioner-approved).
 - **Lineups**: one row per (team, week) with `starters` (array aligned with
   `starterSlots(settings.roster)`); the effective lineup for week N is the row
   with the largest week ≤ N. Only write rows for weeks that are not locked
-  (`editableWeek`). See `src/server/services/lineups.ts`.
+  (`editableWeek`). See `src/server/services/lineups.ts`. The lineup editor
+  keeps unsaved edits in sessionStorage (per league, team and week), restores
+  them if they still fit the roster, and clears them on save.
 - **Rosters**: `roster_spots` (unique per league+lawyer). Use
   `addLawyerToTeam` / `removeLawyerFromTeam` in `src/server/services/roster.ts`
   (they handle waiver holds and clearing upcoming lineups).
 - **Waivers**: rolling priority (`teams.waiver_priority`, 1 = first), processed
-  weekly at `leagues.next_waiver_run_at`. Dropped and undrafted lawyers sit in
-  `waiver_holds` until the next run; everyone else unrostered is a free agent.
-  Pure algorithm in `src/lib/waivers.ts`.
+  weekly at `leagues.next_waiver_run_at`. Dropped lawyers sit in `waiver_holds`
+  for at least `WAIVER_MIN_HOLD_HOURS` (24 h), until the first run after that; a
+  run releases only holds that old, and claims on younger holds stay pending for
+  the following run. Lawyers left undrafted are held until the first run (their
+  holds are backdated in `startSeason`). Everyone else unrostered is a free
+  agent. Adds, drops and claims (and saving waiver settings) first process a
+  waiver run that is already due, so nothing acts on pre-run state. Pure
+  algorithm in `src/lib/waivers.ts`.
 - **Trades**: proposed → accepted (commissioner review window,
   `settings.trades.reviewHours`) → completed, or rejected/cancelled/vetoed/failed.
 - **Draft**: snake (`src/lib/draft.ts`), clients poll every ~2 s; the server
-  auto-picks lazily when the deadline has passed.
+  auto-picks lazily once a deadline is more than `PICK_GRACE_MS` (1.5 s) old,
+  for every caller (polls, page renders, maintenance, picks). A member's pick
+  carries the overall pick number they saw and is refused if the clock moved
+  on. While no pick has been made, a commissioner can send a started draft
+  "Back to setup".
+- **Members**: before the draft a commissioner can remove members; in any phase
+  until the season is complete they can give a team to another existing account
+  that isn't in the league (`settings-admin.reassignTeam`: the owner changes,
+  the team keeps everything else). Creator and commissioner teams can't be
+  handed off.
 - **Results** (`src/server/services/results.ts`): commissioners "finalize"
   weeks in order, which snapshots scores (`snapshotWeek`). A matchup is final
-  when all its weeks are finalized (median games use the median of all teams'
-  totals). Finalizing the last regular-season week seeds the playoffs
+  when all its weeks are finalized (median games use the median of the OTHER
+  teams' totals; the team playing the median is left out). The first time a
+  week is finalized its scoring settings are stored in `week_scoring`; a
+  reopened week is re-scored with those stored settings (pool links and
+  approvals are always the current ones). Finalizing the last regular-season week seeds the playoffs
   automatically (top `playoffTeams` from standings, byes for top seeds); each
   settled round creates the next; one winner left → status `complete`. Only the
   latest finalized week can be reopened; reopening deletes any playoff round

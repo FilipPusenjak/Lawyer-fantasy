@@ -9,6 +9,7 @@ import { totalSeasonWeeks } from "@/lib/settings";
 import { weekOfDate } from "@/lib/time";
 import { canManagePool, getCommissionerContext } from "@/server/league-context";
 import { eventCredits, finalizedWeeks, listPending, loadCreditIndex, pendingGroups } from "@/server/services/events";
+import { reopenedWeekScoring } from "@/server/services/scores";
 import { BackLink } from "../pool/pool-ui";
 import { reviewEventsAction } from "./actions";
 import { appearanceOptions, parseQueueFilter, queueCounts, queueHref } from "./event-rules";
@@ -29,12 +30,15 @@ export default async function ReviewQueuePage({ params, searchParams }: PageProp
   const sp = await searchParams;
   const filter = parseQueueFilter(sp);
   const loadedAt = new Date().toISOString();
-  const [events, groups, index, finalized] = await Promise.all([
+  const [events, groups, index, finalized, reopened] = await Promise.all([
     listPending(db, poolId, QUEUE_LIMIT, { origin: filter.origin ?? undefined, caseId: filter.caseId ?? undefined }),
     pendingGroups(db, poolId),
     loadCreditIndex(db, poolId),
     finalizedWeeks(db, leagueId),
+    reopenedWeekScoring(db, leagueId, ctx.settings.scoring),
   ]);
+  // A reopened week keeps the scoring it was finalized with, so previews use it too.
+  const scoringFor = (occurredOn: string) => reopened.get(weekOfDate(occurredOn, ctx.league.seasonStart)) ?? ctx.settings.scoring;
   const counts = queueCounts(groups, filter);
   const added = Number(sp.added) || 0;
   const totalWeeks = totalSeasonWeeks(ctx.settings.schedule);
@@ -131,7 +135,7 @@ export default async function ReviewQueuePage({ params, searchParams }: PageProp
                   </label>
                   <EventFacts
                     e={e}
-                    credits={e.complete ? eventCredits(e, index, ctx.settings.scoring) : []}
+                    credits={e.complete ? eventCredits(e, index, scoringFor(e.occurredOn)) : []}
                     week={weekOfDate(e.occurredOn, ctx.league.seasonStart)}
                     totalWeeks={totalWeeks}
                     finalized={finalized}

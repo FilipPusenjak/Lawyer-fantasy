@@ -59,7 +59,7 @@ export async function saveScoringAction(leagueId: string, _prev: unknown, formDa
     const ctx = await commish(leagueId);
     const scoring = unwrap(parseScoringForm(formData, { currentPreset: ctx.settings.scoring.preset }));
     await saveScoringSettings(db, leagueId, scoring);
-    return saved(leagueId, "Scoring saved. Every week that isn't finalized now uses these values.");
+    return saved(leagueId, "Scoring saved. Weeks that haven't been finalized yet use these values.");
   });
 }
 

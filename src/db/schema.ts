@@ -545,6 +545,25 @@ export const weekFinalizations = pgTable(
   (t) => [primaryKey({ columns: [t.leagueId, t.week] })],
 );
 
+/**
+ * The league's scoring settings when a week was FIRST finalized. Kept when the
+ * week is reopened (never deleted), so finalizing it again scores it the same
+ * way even if the commissioner changed scoring in between. Weeks finalized
+ * before this table existed have no row and use the current settings.
+ */
+export const weekScoring = pgTable(
+  "week_scoring",
+  {
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => leagues.id, { onDelete: "cascade" }),
+    week: integer("week").notNull(),
+    scoring: jsonb("scoring").$type<LeagueSettings["scoring"]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.leagueId, t.week] })],
+);
+
 /** Snapshot of each lawyer's points for a finalized week. */
 export const weekScores = pgTable(
   "week_scores",

@@ -5,7 +5,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { DbOrTx } from "@/db";
 import { lawyers, rosterSpots, transactions, waiverHolds } from "@/db/schema";
-import type { LeagueSettings } from "@/lib/settings";
+import type { LeagueSettings, SlotType } from "@/lib/settings";
 import { rosterSize } from "@/lib/settings";
 import { UserError } from "@/server/action-result";
 import { removeLawyerFromUpcomingLineups } from "./lineups";
@@ -102,9 +102,19 @@ export async function addLawyerToTeam(
   await db.delete(waiverHolds).where(and(eq(waiverHolds.leagueId, args.leagueId), eq(waiverHolds.lawyerId, args.lawyerId)));
 }
 
+/** When each lawyer on waivers in a league went on waivers (lawyerId -> time). */
+export async function loadWaiverHoldTimes(db: DbOrTx, leagueId: string): Promise<Map<string, Date>> {
+  const rows = await db
+    .select({ lawyerId: waiverHolds.lawyerId, createdAt: waiverHolds.createdAt })
+    .from(waiverHolds)
+    .where(eq(waiverHolds.leagueId, leagueId));
+  return new Map(rows.map((r) => [r.lawyerId, r.createdAt]));
+}
+
 /**
  * Remove a lawyer from a team, clear them from unlocked lineups, and
- * optionally place them on waivers until the next waiver run.
+ * optionally place them on waivers (see WAIVER_MIN_HOLD_HOURS for how long).
+ * Returns the lineup slot they left empty this week, or null.
  */
 export async function removeLawyerFromTeam(
   db: DbOrTx,
@@ -115,14 +125,15 @@ export async function removeLawyerFromTeam(
     toWaivers: boolean;
     now?: Date;
   },
-): Promise<void> {
+): Promise<{ emptiedSlot: SlotType | null }> {
   const deleted = await db
     .delete(rosterSpots)
     .where(and(eq(rosterSpots.teamId, args.teamId), eq(rosterSpots.lawyerId, args.lawyerId)))
     .returning({ id: rosterSpots.id });
   if (deleted.length === 0) throw new UserError("That lawyer is not on this roster.");
-  await removeLawyerFromUpcomingLineups(db, args.league, args.teamId, args.lawyerId, args.now);
+  const emptiedSlot = await removeLawyerFromUpcomingLineups(db, args.league, args.teamId, args.lawyerId, args.now);
   if (args.toWaivers) {
     await db.insert(waiverHolds).values({ leagueId: args.league.id, lawyerId: args.lawyerId }).onConflictDoNothing();
   }
+  return { emptiedSlot };
 }

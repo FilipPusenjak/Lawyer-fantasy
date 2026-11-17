@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { drafts, teams, trades, users, type Matchup, type Team } from "@/db/schema";
 import { Badge, Card, CardTitle, cx, EmptyState, LinkButton, ListRow, Page, Points } from "@/components/ui";
 import { fmtRecord, plural } from "@/lib/format";
-import { median } from "@/lib/schedule";
+import { leagueMedianFor } from "@/lib/schedule";
 import {
   currentWeek,
   editableWeek,
@@ -365,7 +365,11 @@ async function MatchupCard({
     const sb = await getScoreboard(league.id);
     myScore = sb.teamRange(myTeam.id, m.weekStart, m.weekEnd);
     if (m.isBye) oppScore = null;
-    else if (m.isMedian || !oppId) oppScore = median([...teamsById.keys()].map((id) => sb.teamRange(id, m.weekStart, m.weekEnd)));
+    else if (m.isMedian || !oppId)
+      oppScore = leagueMedianFor(
+        m.teamAId,
+        [...teamsById.keys()].map((id) => [id, sb.teamRange(id, m.weekStart, m.weekEnd)] as const),
+      );
     else oppScore = sb.teamRange(oppId, m.weekStart, m.weekEnd);
   }
 

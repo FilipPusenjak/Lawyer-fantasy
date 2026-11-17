@@ -3,6 +3,7 @@ import {
   bracketSeedOrder,
   decideWinner,
   firstRoundBracket,
+  leagueMedianFor,
   median,
   nextRoundPairs,
   regularSeasonSchedule,
@@ -82,5 +83,18 @@ describe("playoffs", () => {
   it("median", () => {
     expect(median([1, 5, 3])).toBe(3);
     expect(median([1, 2, 3, 4])).toBe(2.5);
+  });
+  it("the league median leaves out the team playing it", () => {
+    const totals = new Map([
+      ["a", 55],
+      ["b", 40],
+      ["c", 80],
+    ]);
+    // a is the middle score: it plays the median of b and c (60), not its own 55.
+    expect(leagueMedianFor("a", totals)).toBe(60);
+    expect(leagueMedianFor("b", totals)).toBe(67.5);
+    expect(leagueMedianFor("c", totals)).toBe(47.5);
+    expect(leagueMedianFor("a", [["a", 10]])).toBe(0);
+    expect(leagueMedianFor("x", [["a", 1.111], ["b", 2.222]])).toBe(1.67);
   });
 });

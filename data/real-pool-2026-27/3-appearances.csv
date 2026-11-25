@@ -2,7 +2,7 @@ lawyer_name,docket_number_or_caption,side
 Brian Rabinovitz,2:26-cv-03097,plaintiff
 Brian Rabinovitz,4:25-cv-03477,plaintiff
 Brian Rabinovitz,1:24-cv-03973,plaintiff
-Abraham Fine,25-3-YGR,prosecution
+Abraham Fine,25-cr-00003-YGR,prosecution
 Andrew M. Gass,1:24-cv-03973,defendant
 Andrew M. Gass,1:23-cv-11195,defendant
 Alejandra L. López,1:25-cr-20500-DPG,prosecution
@@ -46,7 +46,7 @@ Lisa S. Blatt,25-965,respondent
 Zach Biesanz,2:23-cv-01495,plaintiff
 Zach Biesanz,1:24-cv-03973,plaintiff
 Brandon Burkart,3:24-cr-00551-E,prosecution
-Edward Swanson,25-3-YGR,defense
+Edward Swanson,25-cr-00003-YGR,defense
 Paul D. Clement,25-5241,appellee
 Paul D. Clement,25-459,respondent
 Philip D. Ziperman,2:26-cv-03097,plaintiff
@@ -59,11 +59,11 @@ Aaron M. Sheanin,2:24-cv-04055,plaintiff
 Daniel Nessim,1:25-cr-00503,prosecution
 Andrew H. Schapiro,5:26-cv-07078,defendant
 David Berman,1:25-cr-00323,prosecution
-Jeff Schenk,25-3-YGR,defense
+Jeff Schenk,25-cr-00003-YGR,defense
 Aimee Brown,25-498,respondent
 Andrew L. Kline,1:24-cv-03973,plaintiff
 Gary Bell,5:24-cr-00314-J,prosecution
-Jeffrey Tsai,25-3-YGR,defense
+Jeffrey Tsai,25-cr-00003-YGR,defense
 Alex Potapov,26-5028,appellant
 Anthony G. Buzbee,6:24-cv-00437,plaintiff
 John P. Taddei,1:25-cr-20500-DPG,prosecution
@@ -75,14 +75,14 @@ Keri Curtis Axel,1:23-cr-00430-KPF,defense
 Benjamin F. Aiken,26-5028,appellant
 Bradley Justus,1:21-md-03010,defendant
 Kaitlin Farrell,1:25-cr-00323,prosecution
-Mark Goldrosen,25-3-YGR,defense
+Mark Goldrosen,25-cr-00003-YGR,defense
 Benjamin Gutman,26-1804,appellee
 Brianna Lynn Silverstein,1:23-cv-11195,defendant
 Kevin Mosley,1:23-cr-00430-KPF,prosecution
 Matthew Schwartz,1:25-cr-577,defense
 Caroline Anne Flynn,25-579,respondent
 Christopher W. Henry,5:26-cv-07078,plaintiff
-Lloyd Farnham,25-3-YGR,prosecution
+Lloyd Farnham,25-cr-00003-YGR,prosecution
 Michael Bronson,1:25-cr-00346-KAM,defense
 Charles L. McCloud,25-498,respondent
 Conor J. May,1:24-cv-03973,plaintiff
@@ -110,13 +110,13 @@ William Barzee,1:25-cr-20500-DPG,defense
 E. Joshua Rosenkranz,25-965,petitioner
 Elizabeth C. Scott,2:25-cv-08884,plaintiff
 Micah F. Fergenson,1:25-cr-577,prosecution
-Winston Chan,25-3-YGR,defense
+Winston Chan,25-cr-00003-YGR,defense
 Elizabeth B. Prelogar,25-5241,appellee
 Gabriel S. Gross,5:26-cv-07078,plaintiff
 Michael L. Collyer,26 Cr. 29 (AT),prosecution
 Gilbert Charles Dickey,25-1017,petitioner
 Gregg Costa,6:24-cv-00437,defendant
-Molly K. Priedeman,25-3-YGR,prosecution
+Molly K. Priedeman,25-cr-00003-YGR,prosecution
 Gregory George Garre,25-1311,petitioner
 Heidi K. Hubbard,2:23-cv-01495,defendant
 Nicholas W. Chiuchiolo,26 Cr. 29 (AT),prosecution

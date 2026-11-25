@@ -157,3 +157,11 @@ describe("authHref", () => {
     expect(authHref("/login")).toBe("/login");
   });
 });
+
+describe("reserved usernames", () => {
+  it("demo_ is reserved for the dev demo data", () => {
+    expect(usernameSchema.safeParse("demo_player1").success).toBe(false);
+    expect(usernameSchema.safeParse("Demo_Kid").success).toBe(false);
+    expect(usernameSchema.safeParse("demolition").success).toBe(true);
+  });
+});

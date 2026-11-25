@@ -23,7 +23,9 @@ export const usernameSchema = text.transform(normalizeUsername).pipe(
     .string()
     .min(USERNAME_MIN, `Usernames need at least ${USERNAME_MIN} characters.`)
     .max(USERNAME_MAX, `Usernames can be at most ${USERNAME_MAX} characters.`)
-    .regex(/^[a-z0-9_]+$/, "Usernames can only use letters, numbers and underscores (_)."),
+    .regex(/^[a-z0-9_]+$/, "Usernames can only use letters, numbers and underscores (_).")
+    // Reserved for the dev demo data, which the demo reset deletes by this prefix.
+    .refine((u) => !u.startsWith("demo_"), "That username is reserved. Pick another one."),
 );
 
 export const displayNameSchema = text

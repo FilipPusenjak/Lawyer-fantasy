@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ClDocket } from "@/server/court/courtlistener";
-import { captionKeywords, matchingDockets, RateWindow, scotusDocketFromCase, syncSourceForCase } from "@/server/services/court-sync";
+import { captionKeywords, matchingDockets, pickDocket, RateWindow, scotusDocketFromCase, syncSourceForCase } from "@/server/services/court-sync";
 
 describe("sources", () => {
   it("scotusDocketFromCase", () => {
@@ -50,6 +50,28 @@ describe("auto-link helpers", () => {
     ];
     expect(matchingDockets({ docketNumber: "1:24-cv-03973", court: "S.D.N.Y." }, results).map((d) => d.docketId)).toEqual([1]);
     expect(matchingDockets({ docketNumber: "24-cv-3973", court: "Somewhere" }, results).map((d) => d.docketId)).toEqual([1, 2]);
+  });
+
+  it("pickDocket: one docket per defendant → the caption's defendant; duplicates of one case → the earliest; otherwise none", () => {
+    const perDefendant = [
+      docket({ docketId: 11, caseName: "USA v. Rozier", dateFiled: "2025-07-01" }),
+      docket({ docketId: 10, caseName: "United States v. Earnest", dateFiled: "2025-07-01" }),
+      docket({ docketId: 12, caseName: "USA v. Laster", dateFiled: "2025-07-01" }),
+    ];
+    expect(pickDocket("United States v. Earnest et al.", perDefendant)?.docketId).toBe(10);
+    const dupes = [
+      docket({ docketId: 21, caseName: "In re: Google Digital Advertising Antitrust Litigation", dateFiled: "2021-08-12" }),
+      docket({ docketId: 20, caseName: "In re Google Digital Advertising Antitrust Litigation", dateFiled: "2021-08-12" }),
+      docket({ docketId: 22, caseName: "In re Google Digital Advertising Antitrust Litigation", dateFiled: "2022-01-03" }),
+    ];
+    expect(pickDocket("In re Google Digital Advertising Antitrust Litigation", dupes)?.docketId).toBe(20);
+    // Two different defendants, neither named in the caption: ambiguous.
+    expect(pickDocket("United States v. Chu et al.", [docket({ docketId: 1, caseName: "USA v. Smith" }), docket({ docketId: 2, caseName: "USA v. Jones" })])).toBeNull();
+    // Two different names that both fit equally: ambiguous. The same name written two ways: the earliest.
+    expect(pickDocket("United States v. Chu et al.", [docket({ docketId: 1, caseName: "USA v. Chu" }), docket({ docketId: 2, caseName: "USA v. Chu, Wei" })])).toBeNull();
+    expect(pickDocket("United States v. Chu et al.", [docket({ docketId: 5, caseName: "United States v. Chu", dateFiled: "2025-09-02" }), docket({ docketId: 4, caseName: "USA v. Chu", dateFiled: "2025-09-01" })])?.docketId).toBe(4);
+    expect(pickDocket("United States v. Chu et al.", [docket({ docketId: 3, caseName: "USA v. Daniel Chu" })])?.docketId).toBe(3);
+    expect(pickDocket("United States v. Chu et al.", [])).toBeNull();
   });
 });
 

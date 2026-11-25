@@ -39,7 +39,7 @@ import { caseAppearances, cases, lawyers, leagues, pools, scoringEvents, type Ca
 import { courtIdFromText, docketNumbersMatch, docketSearchTerm } from "@/lib/court/courts";
 import { normalizeScotusDocket, parseScotusDocket, scotusJsonUrl, type ScotusDocket } from "@/lib/court/scotus";
 import { courtListenerCandidates, FIRST_SYNC_DAYS, planCourtListener, planScotus, type AiVerdicts, type PlannedEvent } from "@/lib/court/sync-plan";
-import { isGovernmentParty, partiesFromCaption, partyCore, type NamedLawyer, type PartyNames } from "@/lib/court/text";
+import { isGovernmentParty, normalizeWords, partiesFromCaption, partyCore, type NamedLawyer, type PartyNames } from "@/lib/court/text";
 import { UserError } from "@/server/action-result";
 import { AI_MAX_ENTRIES, AiClassifyError, aiConfigured, classifyEntriesWithClaude, type AiClient } from "@/server/court/ai-classify";
 import {
@@ -590,6 +590,42 @@ export function captionKeywords(caption: string): string | undefined {
   return undefined;
 }
 
+/** Distinctive caption words (both sides, government and filler words skipped) for telling dockets apart. */
+function captionWords(caption: string): string[] {
+  const parties = partiesFromCaption(caption);
+  const names = [...parties.plaintiff, ...parties.defendant].filter((p) => !isGovernmentParty(p));
+  const source = names.length ? names : [caption.replace(/^in re:?\s+/i, "")];
+  const words = new Set<string>();
+  for (const name of source) {
+    for (const w of partyCore(name).split(" ")) if (w.length >= 3 && !CAPTION_NOISE.has(w) && !/^\d+$/.test(w)) words.add(w);
+  }
+  return [...words];
+}
+
+/**
+ * The one docket to link when several share the case's number and court.
+ * CourtListener often holds one docket per defendant in a criminal case, or a
+ * duplicate of an MDL: pick the docket whose name has the most of the
+ * caption's distinctive words. When that still ties, link the earliest only if
+ * the tied dockets are copies of one case (same name); otherwise none (ambiguous).
+ */
+export function pickDocket(caption: string, matches: ClDocket[]): ClDocket | null {
+  if (matches.length <= 1) return matches[0] ?? null;
+  const words = captionWords(caption);
+  const scored = matches.map((d) => {
+    const hay = ` ${normalizeWords(d.caseName)} `;
+    return { d, score: words.filter((w) => hay.includes(` ${w} `)).length };
+  });
+  const best = Math.max(...scored.map((x) => x.score));
+  if (best === 0) return null;
+  const top = scored.filter((x) => x.score === best).map((x) => x.d);
+  if (top.length === 1) return top[0];
+  // Copies of one case: same distinctive words ("USA v. Chu" = "United States v. Chu"; not "USA v. Chu, Wei").
+  const names = new Set(top.map((d) => captionWords(d.caseName).sort().join(" ")));
+  if (names.size > 1) return null;
+  return [...top].sort((a, b) => (a.dateFiled ?? "9999").localeCompare(b.dateFiled ?? "9999") || a.docketId - b.docketId)[0];
+}
+
 /** Dockets from a search that are the case (same docket number, same court when known). */
 export function matchingDockets(c: { docketNumber: string; court: string }, results: ClDocket[]): ClDocket[] {
   const courtId = courtIdFromText(c.court);
@@ -679,8 +715,9 @@ async function autoLinkInternal(
     opts.after?.();
     tried++;
     const matches = matchingDockets({ docketNumber, court: c.court }, results).filter((r) => !taken.has(r.docketId));
-    if (matches.length === 1) {
-      const docketId = matches[0].docketId;
+    const pick = pickDocket(c.caption, matches);
+    if (pick) {
+      const docketId = pick.docketId;
       await db
         .update(cases)
         .set({ courtlistenerDocketId: docketId, syncCursor: null, syncedAt: null, syncError: null })
@@ -698,7 +735,8 @@ async function autoLinkInternal(
  * Try to link unlinked federal (non-SCOTUS) pool cases to CourtListener dockets
  * by docket number (+ court when known). Uses at most `max` API requests.
  *
- * Links only an unambiguous match. Cases without one are marked
+ * Links only an unambiguous match (pickDocket: among several dockets with the
+ * case's number, the one named after the caption's parties). Cases without one are marked
  * (cases.syncError = AUTO_LINK_NOT_FOUND) and skipped by later runs (link them
  * by hand; linkCaseToDocket clears the mark). `notFound` lists their captions;
  * `remaining` counts unlinked, unmarked cases not tried yet (max reached or

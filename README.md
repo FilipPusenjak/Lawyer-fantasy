@@ -61,6 +61,9 @@ environment for the command; it overrides `.env.local`.
 a 10-team league in week 7 and a 6-team league ready to draft. All demo logins
 use the password `demo-pass-2026`: `demo_commish` (commissioner of both) and
 `demo_player1` … `demo_player9`. Re-running replaces only demo data.
+The demo is for development databases only: don't seed production (its
+password is published here). `npx tsx --env-file=.env.local scripts/reset-demo.ts`
+removes demo data. Usernames starting with `demo_` are reserved for it.
 
 ## Checks
 

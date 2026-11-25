@@ -67,13 +67,15 @@ describe("demo season dates", () => {
 });
 
 describe("demo accounts and teams", () => {
-  it("are valid sign-ups", () => {
+  it("are otherwise-valid accounts under the reserved demo_ prefix (nobody can sign up as one)", () => {
     expect(DEMO_USERS).toHaveLength(10);
     expect(DEMO_USERS[0]).toEqual({ username: "demo_commish", displayName: "Demo Commissioner" });
     for (const u of DEMO_USERS) {
       expect(u.username.startsWith(DEMO_USERNAME_PREFIX)).toBe(true);
-      const parsed = signupSchema.safeParse({ ...u, password: DEMO_PASSWORD, confirmPassword: DEMO_PASSWORD, email: "" });
-      expect(parsed.success).toBe(true);
+      const form = { ...u, password: DEMO_PASSWORD, confirmPassword: DEMO_PASSWORD, email: "" };
+      expect(signupSchema.safeParse(form).success).toBe(false);
+      const unprefixed = { ...form, username: u.username.slice(DEMO_USERNAME_PREFIX.length).padEnd(3, "x") };
+      expect(signupSchema.safeParse(unprefixed).success).toBe(true);
     }
   });
 
